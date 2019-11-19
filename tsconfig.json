@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "es2018",
+    "module": "commonjs",
+    "lib": [
+      "dom",
+      "es2015",
+      "es2016",
+      "es2017",
+      "es2018",
+      "es2018.promise"
+    ],
+    "declaration": false,
+    "allowJs": false ,
+    "jsx": "react",
+    "sourceMap": true ,
+    "outDir": "./dist",
+    "strict": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "noLib": false,
+    "skipLibCheck": true,
+    "keyofStringsOnly": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowUnreachableCode": false
+
+  },
+  "include": ["./src", "./test", "./mocks", "./curltest"]
+}
