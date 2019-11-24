@@ -1,5 +1,5 @@
 // third party
-import { Curl, CurlCode, Easy, Multi } from "node-libcurl";
+import { Curl, CurlCode, Easy, Multi, CurlInfoDebug } from "node-libcurl";
 
 // local
 import { log } from "../../shared/log";
@@ -61,6 +61,23 @@ export const execute = (options: Options): Promise<void> => {
 
     handle.setOpt(Curl.option.URL, options.url);
     handle.setOpt(Curl.option.WRITEFUNCTION, onData);
+    handle.setOpt(Curl.option.NOPROGRESS, 1);
+    handle.setOpt(Curl.option.VERBOSE, 1);
+    handle.setOpt(Curl.option.HTTP_CONTENT_DECODING, 0);
+    handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
+      switch (infoType) {
+        case CurlInfoDebug.Text:
+          log.warn(`info: ${content.toString().trim()}`);
+          break;
+        case CurlInfoDebug.HeaderIn:
+          log.warn(`got header`);
+          break;
+        case CurlInfoDebug.DataIn:
+          log.warn(`got data`);
+          break;
+      }
+    });
+
 
     let headers: string[] = [];
     headers.push("Expect:"); // need this to disable Expect: 100-continue
