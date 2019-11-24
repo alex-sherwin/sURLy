@@ -1,0 +1,9 @@
+{
+  "name": "curltest",
+  "version": "0.0.1",
+  "description": "",
+  "scripts": {},
+  "dependencies": {
+    "node-libcurl": "2.0.1"
+  }
+}
