@@ -54,6 +54,8 @@
     "typeface-roboto": "0.0.75",
     "typeface-roboto-mono": "0.0.75",
     "uuid": "3.3.3",
+    "winston": "3.2.1",
+    "winston-daily-rotate-file": "4.3.0",
     "yup": "0.27.0"
   },
   "devDependencies": {

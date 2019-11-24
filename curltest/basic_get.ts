@@ -1,52 +1,20 @@
-import { Curl, CurlCode, Easy, Multi } from "node-libcurl";
-import { startWebserver, stopWebserver } from "./test_webserver";
-
-const runRequest = (): Promise<void> => {
-  return new Promise((resolve, reject) => {
-
-    const multi: Multi = new Multi();
-
-    const bufs: Buffer[] = [];
-
-    // when handle is done (ok or error)
-    multi.onMessage((err, handle, errCode) => {
-
-      const responseCode = handle.getInfo(Curl.info.RESPONSE_CODE);
-      const statusCode = responseCode.data;
-
-      console.log("responseCode", responseCode);
-      console.log("statusCode", statusCode);
-
-      const buf = Buffer.concat(bufs);
-
-      console.log("total response buf size=" + buf.length);
-
-      multi.removeHandle(handle);
-      handle.close();
-
-      resolve();
-
-    });
-
-    const handle = new Easy();
-
-    const onData = (data: Buffer, size: number, nmemb: number): number => {
-      bufs.push(data);
-      return size * nmemb;
-    };
-
-    handle.setOpt('URL', `http://localhost:9999/get`);
-    handle.setOpt('WRITEFUNCTION', onData);
-
-    multi.addHandle(handle);
-
-  });
-};
+import { startWebserver, stopWebserver, Headers } from "./webserver";
+import { CurlClient } from "./curl";
+import { log } from "./log";
 
 const run = async () => {
-  startWebserver(0);
-  for (let i = 0; i < 1; i++) {
-    await runRequest();
+  await startWebserver();
+  for (let i = 0; i < 3; i++) {
+
+    log.debug(`before request`);
+    await CurlClient.execute({
+      url: "http://localhost:9999/get",
+      headers: {
+        [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
+      },
+    });
+    log.debug(`after request`);
+
   }
   console.log(new Date().toISOString() + "- done waiting");
   stopWebserver();
