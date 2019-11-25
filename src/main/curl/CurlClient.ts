@@ -35,7 +35,7 @@ export const execute = (options: Options): Promise<void> => {
 
       // libcurl error code (not http status code!)
       if (errCode !== CurlCode.CURLE_OK) {
-        return reject(getErrorForCurlCode(errCode, handle));
+        return reject(getErrorForCurlCode(errCode));
       }
 
       // we know since it's CurlCode.CURLE_OK that this will be a HTTP status code as a number
@@ -59,12 +59,16 @@ export const execute = (options: Options): Promise<void> => {
       return size * nmemb;
     };
 
+    // handle.setOpt(Curl.option.ACCEPT_ENCODING, ""); // enables automatic Accept-Encoding request header + de-compression of results
+
     handle.setOpt(Curl.option.URL, options.url);
     handle.setOpt(Curl.option.WRITEFUNCTION, onData);
     handle.setOpt(Curl.option.NOPROGRESS, 1);
-    handle.setOpt(Curl.option.VERBOSE, 1);
     handle.setOpt(Curl.option.HTTP_CONTENT_DECODING, 0);
+
+    handle.setOpt(Curl.option.VERBOSE, 1);
     handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
+
       switch (infoType) {
         case CurlInfoDebug.Text:
           log.warn(`info: ${content.toString().trim()}`);
@@ -76,6 +80,10 @@ export const execute = (options: Options): Promise<void> => {
           log.warn(`got data`);
           break;
       }
+
+      // this must return CURLE_OK, the type sig is wrong (says void)
+      // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
+      return CurlCode.CURLE_OK;
     });
 
 
@@ -104,15 +112,6 @@ const headerMapToStrings = (headers: Headers): string[] => {
   return strings;
 };
 
-const getErrorForCurlCode = (code: CurlCode, handle: Easy): Error => {
-
-  const info = handle.getInfo(Curl.info.RESPONSE_CODE);
-
-  switch (code) {
-    case CurlCode.CURLE_OPERATION_TIMEDOUT:
-      return new Error(`libcurl timed out [code=${code}]`);
-    default:
-      return new Error(`libcurl failed with [code=${code}], see https://curl.haxx.se/libcurl/c/libcurl-errors.html`);
-  }
-
+const getErrorForCurlCode = (code: CurlCode): Error => {
+  return new Error(`libcurl failed with [code=${code}], see https://curl.haxx.se/libcurl/c/libcurl-errors.html`);
 };
