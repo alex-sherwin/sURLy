@@ -1,5 +1,3 @@
-test like chuck norris
-
 # Quickstart
 
 ```bash
