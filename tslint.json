@@ -18,7 +18,7 @@
     "jsx-no-string-ref": true,
     "jsx-self-close": true,
     "import-name": false,
-    "jsx-boolean-value": false,
+    "jsx-boolean-value": false
   },
   "rulesDirectory": []
 }
