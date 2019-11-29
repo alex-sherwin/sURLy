@@ -15,7 +15,7 @@ const run = async () => {
 
   try {
     const promises: Promise<void>[] = [];
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 1000; i++) {
 
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = "10";

@@ -50,7 +50,7 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
           res.statusCode = getResponseStatusCode(req);
 
-          log.debug(`ending web request entity len=${responseBuf.length}`);
+          log.silly(`ending web request entity len=${responseBuf.length}`);
           return res.end(responseBuf);
         });
 

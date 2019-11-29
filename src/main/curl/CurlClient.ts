@@ -104,7 +104,7 @@ export class CurlClient {
 
     const [flatPromise, handleBufs] = this.stuffForHandle(handle);
 
-    log.debug("curl onMessage");
+    log.silly("curl onMessage");
 
     // node Error
     if (err) {
@@ -123,12 +123,12 @@ export class CurlClient {
 
     const buf = Buffer.concat(handleBufs);
 
-    log.warn(`got status code=${statusCode}, resp entity len=${buf.length}`);
+    log.silly(`got status code=${statusCode}, resp entity len=${buf.length}`);
 
     this.multi.removeHandle(handle);
     handle.close();
 
-    log.warn(`finished onMessage`);
+    log.silly(`finished onMessage`);
     flatPromise.resolve();
 
   };
