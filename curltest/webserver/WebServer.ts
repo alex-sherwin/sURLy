@@ -8,16 +8,14 @@ import { log } from "../log";
 // reaelly local
 import { Headers } from "./headers";
 
-let webserver: http.Server | undefined;
 
-const PORT = 9999;
 const DEFAULT_MAX_RESPONSE_RANDOM_BYTES = 1025; // not a typo, force extra buffers for default sizes of 16, 32, 64, 128 etc.
 
-export const startWebserver = () => {
+export const startWebserver = (port: number): http.Server => {
 
-  log.info(`starting webserver on port ${PORT}...`);
+  log.info(`starting webserver on port ${port}...`);
 
-  webserver = http.createServer((req, res) => {
+  const webserver = http.createServer((req, res) => {
 
     log.silly(`starting to handle web request`);
 
@@ -65,9 +63,11 @@ export const startWebserver = () => {
 
   });
 
-  webserver.listen(PORT, () => {
+  webserver.listen(port, () => {
     log.info(`finished starting webserver`);
   });
+
+  return webserver;
 };
 
 const getResponseDelayMillis = (req: http.IncomingMessage): number => {
@@ -99,7 +99,7 @@ const getResponseStatusCode = (req: http.IncomingMessage): number => {
   return 200;
 };
 
-export const stopWebserver = () => {
+export const stopWebserver = (webserver: http.Server) => {
   if (webserver) {
     log.info("closing webserver...")
     webserver.close((err) => {

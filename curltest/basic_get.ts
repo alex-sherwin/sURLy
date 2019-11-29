@@ -6,7 +6,8 @@ import { CurlClient } from "./curl";
 import { log } from "./log";
 
 const run = async () => {
-  await startWebserver();
+  const webserver1 = await startWebserver(9990);
+  const webserver2 = await startWebserver(9991);
 
   const client = new CurlClient();
 
@@ -17,16 +18,17 @@ const run = async () => {
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = "10";
       log.debug(`before request (resp len=${respLen})`);
-      promises.push(
-        client.execute({
-          method: "GET",
-          url: "http://localhost:9999/get",
-          headers: {
-            [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
-            [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
-          },
-        })
-      );
+      const port = i % 2 === 0 ? '9990' : '9991';
+      const p = client.execute({
+        method: "GET",
+        url: `http://localhost:${port}/get`,
+        headers: {
+          [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
+          [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
+        },
+      });
+      promises.push(p);
+      await p;
       log.debug(`after request`);
 
     }
@@ -42,7 +44,9 @@ const run = async () => {
     client.close();
   }
   console.log(new Date().toISOString() + "- done waiting");
-  stopWebserver();
+  stopWebserver(webserver1);
+  stopWebserver(webserver2);
 };
+
 
 run();
