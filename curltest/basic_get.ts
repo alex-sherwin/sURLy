@@ -9,26 +9,28 @@ const run = async () => {
   const webserver1 = await startWebserver(9990);
   const webserver2 = await startWebserver(9991);
 
-  const client = new CurlClient();
+  const client = new CurlClient({
+    maxConnectionsPerHost: 4,
+  });
 
   try {
     const promises: Promise<void>[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 100; i++) {
 
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = "10";
       log.debug(`before request (resp len=${respLen})`);
+      const host = i % 2 === 0 ? 'localhost' : '127.0.0.1';
       const port = i % 2 === 0 ? '9990' : '9991';
       const p = client.execute({
         method: "GET",
-        url: `http://localhost:${port}/get`,
+        url: `http://${host}:${port}/get`,
         headers: {
           [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
           [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
         },
       });
       promises.push(p);
-      await p;
       log.debug(`after request`);
 
     }

@@ -11,63 +11,72 @@ import { Headers } from "./headers";
 
 const DEFAULT_MAX_RESPONSE_RANDOM_BYTES = 1025; // not a typo, force extra buffers for default sizes of 16, 32, 64, 128 etc.
 
-export const startWebserver = (port: number): http.Server => {
+export const startWebserver = (port: number): Promise<http.Server> => {
 
-  log.info(`starting webserver on port ${port}...`);
+  return new Promise((resolve, reject) => {
 
-  const webserver = http.createServer((req, res) => {
 
-    log.silly(`starting to handle web request`);
+    log.info(`starting webserver on port ${port}...`);
 
-    // maybe bail w/ error
-    const responseType = req.headers[Headers.X_RESPONSE_TYPE];
-    if (responseType !== Headers.X_RESPONSE_TYPE_VALUE_ECHO && responseType !== Headers.X_RESPONSE_TYPE_VALUE_RANDOM) {
-      // dont know how to respond
-      res.statusCode = 500;
-      return res.end(`no "${Headers.X_RESPONSE_TYPE}" header set`);
-    }
+    const webserver = http.createServer((req, res) => {
 
-    const processResponse = () => {
+      log.silly(`starting to handle web request`);
 
-      const bufs: Buffer[] = [];
+      // maybe bail w/ error
+      const responseType = req.headers[Headers.X_RESPONSE_TYPE];
+      if (responseType !== Headers.X_RESPONSE_TYPE_VALUE_ECHO && responseType !== Headers.X_RESPONSE_TYPE_VALUE_RANDOM) {
+        // dont know how to respond
+        res.statusCode = 500;
+        return res.end(`no "${Headers.X_RESPONSE_TYPE}" header set`);
+      }
 
-      req.on("data", (buf) => {
-        bufs.push(buf);
+      const processResponse = () => {
+
+        const bufs: Buffer[] = [];
+
+        req.on("data", (buf) => {
+          bufs.push(buf);
+        });
+
+        req.on("end", () => {
+
+          let responseBuf: Buffer;
+
+          if (responseType === "echo") {
+            responseBuf = Buffer.concat(bufs);
+          } else {
+            responseBuf = getRandomResponseBytes(req);
+          }
+
+          res.statusCode = getResponseStatusCode(req);
+
+          log.debug(`ending web request entity len=${responseBuf.length}`);
+          return res.end(responseBuf);
+        });
+
+      };
+
+      const delayMs = getResponseDelayMillis(req);
+
+      if (delayMs > 0) {
+        setTimeout(processResponse, delayMs);
+      } else {
+        processResponse();
+      }
+
+    });
+
+    try {
+      webserver.listen(port, () => {
+        log.info(`finished starting webserver`);
+        return resolve(webserver);
       });
-
-      req.on("end", () => {
-
-        let responseBuf: Buffer;
-
-        if (responseType === "echo") {
-          responseBuf = Buffer.concat(bufs);
-        } else {
-          responseBuf = getRandomResponseBytes(req);
-        }
-
-        res.statusCode = getResponseStatusCode(req);
-
-        log.debug(`ending web request entity len=${responseBuf.length}`);
-        return res.end(responseBuf);
-      });
-
-    };
-
-    const delayMs = getResponseDelayMillis(req);
-
-    if (delayMs > 0) {
-      setTimeout(processResponse, delayMs);
-    } else {
-      processResponse();
+    } catch (err) {
+      return reject(err);
     }
 
   });
 
-  webserver.listen(port, () => {
-    log.info(`finished starting webserver`);
-  });
-
-  return webserver;
 };
 
 const getResponseDelayMillis = (req: http.IncomingMessage): number => {

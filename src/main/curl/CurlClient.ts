@@ -5,13 +5,17 @@ import { Readable } from "stream";
 // local
 import { log } from "../../shared/log";
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
-import ReactResizeDetector from "react-resize-detector";
 
 interface Headers {
   [keyof: string]: string;
 }
 
-export interface Options {
+export interface ClientOptions {
+  maxConnectionsPerHost?: number;
+  maxConnections?: number;
+}
+
+export interface ExecuteOptions {
   url: string;
   method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS";
   headers?: Headers;
@@ -25,11 +29,22 @@ export class CurlClient {
   private bufs: Buffer[][] = [];
   private flatPromises: FlatPromise<void>[] = [];
 
-  private multi: Multi = new Multi();
+  private multi: Multi;
 
-  private multiConfigured: boolean = false;
+  public constructor(options?: ClientOptions) {
+    this.multi = new Multi();
+    this.multi.onMessage((err, handle, errCode) => this.onMessage(err, handle, errCode));
+    if (options) {
+      if (typeof options.maxConnections === "number") {
+        this.multi.setOpt(Multi.option.MAX_TOTAL_CONNECTIONS, options.maxConnections);
+      }
+      if (typeof options.maxConnectionsPerHost === "number") {
+        this.multi.setOpt(Multi.option.MAX_HOST_CONNECTIONS, options.maxConnectionsPerHost);
+      }
+    }
+  }
 
-  public execute(options: Options): Promise<void> {
+  public execute(options: ExecuteOptions): Promise<void> {
 
     const [handle, flatPromise, handleBufs] = this.createHandle();
 
@@ -132,7 +147,6 @@ export class CurlClient {
   };
 
   private createHandle(): [Easy, FlatPromise<void>, Buffer[]] {
-    this.configureMulti();
     const flatPromise = createFlatPromise<void>();
     const handleBufs: Buffer[] = [];
     const handle = new Easy();
@@ -140,13 +154,6 @@ export class CurlClient {
     this.flatPromises.push(flatPromise);
     this.bufs.push(handleBufs);
     return [handle, flatPromise, handleBufs];
-  }
-
-  private configureMulti() {
-    if (!this.multiConfigured) {
-      this.multi.onMessage((err, handle, errCode) => this.onMessage(err, handle, errCode));
-      this.multiConfigured = true;
-    }
   }
 
   public close() {
