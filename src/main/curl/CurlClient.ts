@@ -5,6 +5,7 @@ import { Readable } from "stream";
 // local
 import { log } from "../../shared/log";
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
+import ReactResizeDetector from "react-resize-detector";
 
 interface Headers {
   [keyof: string]: string;
@@ -22,33 +23,37 @@ export interface Options {
 // tslint:disable-next-line:max-line-length
 const onMessage = (err: Error | undefined, handle: Easy, errCode: CurlCode, bufs: Buffer[], multi: Multi, options: Options, { resolve, reject }: FlatPromise<void>): void => {
 
-  // console.log("curl onMessage");
-
   log.debug("curl onMessage");
 
   // node Error
   if (err) {
+    log.warn(`error: ` + err.message);
     return reject(err);
   }
 
   // libcurl error code (not http status code!)
   if (errCode !== CurlCode.CURLE_OK) {
+    log.warn(`errCode: ` + errCode);
     return reject(getErrorForCurlCode(errCode));
   }
 
   // we know since it's CurlCode.CURLE_OK that this will be a HTTP status code as a number
-  // const statusCode = handle.getInfo(Curl.info.RESPONSE_CODE).data as number;
+  const statusCode = handle.getInfo(Curl.info.RESPONSE_CODE).data as number;
 
-  // const buf = Buffer.concat(bufs);
+  const buf = Buffer.concat(bufs);
+
+  log.warn(`got status code=${statusCode}, resp entity len=${buf.length}`);
 
   multi.removeHandle(handle);
   handle.close();
 
   if (!options.multi) {
     // if this was a locally created multi, close it
+    log.warn(`closing local multi`);
     multi.close();
   }
 
+  log.warn(`finished onMessage`);
   resolve();
 
 };

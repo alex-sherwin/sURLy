@@ -49,7 +49,7 @@ export const startWebserver = () => {
 
         res.statusCode = getResponseStatusCode(req);
 
-        log.silly(`ending web request`);
+        log.debug(`ending web request entity len=${responseBuf.length}`);
         return res.end(responseBuf);
       });
 
@@ -80,10 +80,9 @@ const getResponseDelayMillis = (req: http.IncomingMessage): number => {
 };
 
 const getMaxRandomResponseBytes = (req: http.IncomingMessage): number => {
-  const value = req.headers[Headers.X_MAX_RADNOM_RESPONSE_BYTES];
+  const value = req.headers[Headers.X_RADNOM_RESPONSE_BYTES_LENGTH];
   if (typeof value === "string") {
-    const maxRandomBytes = parseInt(value);
-    return _round(Math.random() * maxRandomBytes, 0);
+    return parseInt(value, 10);
   }
   return DEFAULT_MAX_RESPONSE_RANDOM_BYTES;
 };

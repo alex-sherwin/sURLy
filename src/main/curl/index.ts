@@ -1,2 +1,3 @@
-import * as CurlClient from "./CurlClient";
-export { CurlClient };
+// import * as CurlClient from "./CurlClient";
+// export { CurlClient };
+export * from "./CurlClient2";
