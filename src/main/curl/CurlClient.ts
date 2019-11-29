@@ -15,123 +15,145 @@ export interface Options {
   url: string;
   method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS";
   headers?: Headers;
-  multi?: Multi;
   compression?: boolean;
   entity?: Buffer | Readable;
 }
 
-// tslint:disable-next-line:max-line-length
-const onMessage = (err: Error | undefined, handle: Easy, errCode: CurlCode, bufs: Buffer[], multi: Multi, options: Options, { resolve, reject }: FlatPromise<void>): void => {
+export class CurlClient {
 
-  log.debug("curl onMessage");
+  private handles: Easy[] = [];
+  private bufs: Buffer[][] = [];
+  private flatPromises: FlatPromise<void>[] = [];
 
-  // node Error
-  if (err) {
-    log.warn(`error: ` + err.message);
-    return reject(err);
-  }
+  private multi: Multi = new Multi();
 
-  // libcurl error code (not http status code!)
-  if (errCode !== CurlCode.CURLE_OK) {
-    log.warn(`errCode: ` + errCode);
-    return reject(getErrorForCurlCode(errCode));
-  }
+  private multiConfigured: boolean = false;
 
-  // we know since it's CurlCode.CURLE_OK that this will be a HTTP status code as a number
-  const statusCode = handle.getInfo(Curl.info.RESPONSE_CODE).data as number;
+  public execute(options: Options): Promise<void> {
 
-  const buf = Buffer.concat(bufs);
+    const [handle, flatPromise, handleBufs] = this.createHandle();
 
-  log.warn(`got status code=${statusCode}, resp entity len=${buf.length}`);
+    handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => this.onData(data, size, nmemb, handleBufs));
 
-  multi.removeHandle(handle);
-  handle.close();
-
-  if (!options.multi) {
-    // if this was a locally created multi, close it
-    log.warn(`closing local multi`);
-    multi.close();
-  }
-
-  log.warn(`finished onMessage`);
-  resolve();
-
-};
-
-const onData = (data: Buffer, size: number, nmemb: number, bufs: Buffer[]): number => {
-  bufs.push(data);
-  return size * nmemb;
-};
-
-// TODO: FIX ONMEESSAGE
-// * maybe use a Context that needs to be re-passed to execute() which tracks multi and registers onMessage once, tracks handles, bufs, etc
-// * switch to a class and use local variables to track multi, handles, bufs, etc.
-
-export const execute = (options: Options): Promise<void> => {
-
-  const flatPromise = createFlatPromise<void>();
-
-  // return new Promise((resolve, reject) => {
-
-  const multi: Multi = options.multi ?? new Multi();
-
-  const bufs: Buffer[] = [];
-
-  // when handle is done (ok or error)
-  // TODO: FIXME: when Multi is re-used for concurrency this is reset for each request
-  multi.onMessage((err, handle, errCode) => onMessage(err, handle, errCode, bufs, multi, options, flatPromise));
-
-  const handle = new Easy();
-
-  handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => onData(data, size, nmemb, bufs));
-
-  if (options.compression) {
-    // enables automatic Accept-Encoding request header + de-compression of results when using empty string ""
-    handle.setOpt(Curl.option.ACCEPT_ENCODING, "");
-  }
-
-  handle.setOpt(Curl.option.URL, options.url);
-  handle.setOpt(Curl.option.NOPROGRESS, 1);
-  handle.setOpt(Curl.option.HTTP_CONTENT_DECODING, 0);
-
-  handle.setOpt(Curl.option.VERBOSE, 1);
-  handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
-
-    switch (infoType) {
-      case CurlInfoDebug.Text:
-        // log.warn(`info: ${content.toString().trim()}`);
-        break;
-      case CurlInfoDebug.HeaderIn:
-        // log.warn(`got header`);
-        break;
-      case CurlInfoDebug.DataIn:
-        // log.warn(`got data`);
-        break;
+    if (options.compression) {
+      // enables automatic Accept-Encoding request header + de-compression of results when using empty string ""
+      handle.setOpt(Curl.option.ACCEPT_ENCODING, "");
     }
 
-    // this must return CURLE_OK, the type sig is wrong (says void)
-    // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
-    return CurlCode.CURLE_OK;
-  });
+    handle.setOpt(Curl.option.URL, options.url);
+    handle.setOpt(Curl.option.NOPROGRESS, 1);
+    handle.setOpt(Curl.option.HTTP_CONTENT_DECODING, 0);
+
+    handle.setOpt(Curl.option.VERBOSE, 1);
+    handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
+
+      switch (infoType) {
+        case CurlInfoDebug.Text:
+          // log.warn(`info: ${content.toString().trim()}`);
+          break;
+        case CurlInfoDebug.HeaderIn:
+          // log.warn(`got header`);
+          break;
+        case CurlInfoDebug.DataIn:
+          // log.warn(`got data`);
+          break;
+      }
+
+      // this must return CURLE_OK, the type sig is wrong (says void)
+      // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
+      return CurlCode.CURLE_OK;
+    });
 
 
-  let headers: string[] = [];
-  headers.push("Expect:"); // need this to disable Expect: 100-continue
+    let headers: string[] = [];
+    headers.push("Expect:"); // need this to disable Expect: 100-continue
 
-  if (options.headers) {
-    headers = [...headers, ...headerMapToStrings(options.headers)];
+    if (options.headers) {
+      headers = [...headers, ...headerMapToStrings(options.headers)];
+    }
+
+    handle.setOpt(Curl.option.HTTPHEADER, headers);
+
+    // register and execute the request handle
+    // log.debug("curl register handle");
+    this.multi.addHandle(handle);
+
+    // });
+
+    return flatPromise.promise;
+
+  };
+
+  // tslint:disable-next-line:max-line-length
+  private onMessage(err: Error | undefined, handle: Easy, errCode: CurlCode): void {
+
+    const [flatPromise, handleBufs] = this.stuffForHandle(handle);
+
+    log.debug("curl onMessage");
+
+    // node Error
+    if (err) {
+      log.warn(`error: ` + err.message);
+      return flatPromise.reject(err);
+    }
+
+    // libcurl error code (not http status code!)
+    if (errCode !== CurlCode.CURLE_OK) {
+      log.warn(`errCode: ` + errCode);
+      return flatPromise.reject(getErrorForCurlCode(errCode));
+    }
+
+    // we know since it's CurlCode.CURLE_OK that this will be a HTTP status code as a number
+    const statusCode = handle.getInfo(Curl.info.RESPONSE_CODE).data as number;
+
+    const buf = Buffer.concat(handleBufs);
+
+    log.warn(`got status code=${statusCode}, resp entity len=${buf.length}`);
+
+    this.multi.removeHandle(handle);
+    handle.close();
+
+    log.warn(`finished onMessage`);
+    flatPromise.resolve();
+
+  };
+
+  private onData(data: Buffer, size: number, nmemb: number, handleBufs: Buffer[]): number {
+    handleBufs.push(data);
+    return size * nmemb;
+  };
+
+  private stuffForHandle(handle: Easy): [FlatPromise<void>, Buffer[]] {
+    const idx = this.handles.indexOf(handle);
+    if (idx === -1) {
+      throw new Error(`failed to find index for handle`);
+    }
+    return [this.flatPromises[idx], this.bufs[idx]];
+  };
+
+  private createHandle(): [Easy, FlatPromise<void>, Buffer[]] {
+    this.configureMulti();
+    const flatPromise = createFlatPromise<void>();
+    const handleBufs: Buffer[] = [];
+    const handle = new Easy();
+    this.handles.push(handle);
+    this.flatPromises.push(flatPromise);
+    this.bufs.push(handleBufs);
+    return [handle, flatPromise, handleBufs];
   }
 
-  handle.setOpt(Curl.option.HTTPHEADER, headers);
+  private configureMulti() {
+    if (!this.multiConfigured) {
+      this.multi.onMessage((err, handle, errCode) => this.onMessage(err, handle, errCode));
+      this.multiConfigured = true;
+    }
+  }
 
-  // register and execute the request handle
-  // log.debug("curl register handle");
-  multi.addHandle(handle);
+  public close() {
+    this.multi.close();
+  }
 
-  // });
-
-  return flatPromise.promise;
-};
+}
 
 const headerMapToStrings = (headers: Headers): string[] => {
   const strings: string[] = [];
