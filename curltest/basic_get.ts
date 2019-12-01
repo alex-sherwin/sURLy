@@ -2,7 +2,7 @@ import { Curl, CurlCode, Easy, Multi, CurlInfoDebug } from "node-libcurl";
 import _round from "lodash/round";
 
 import { startWebserver, stopWebserver, Headers } from "./webserver";
-import { CurlClient } from "./curl";
+import { CurlClient, ExecuteResult } from "./curl";
 import { log } from "./log";
 
 const run = async () => {
@@ -10,36 +10,52 @@ const run = async () => {
   const webserver2 = await startWebserver(9991);
 
   const client = new CurlClient({
-    maxConnectionsPerHost: 4,
+    maxConnectionsPerHost: 4
   });
 
   try {
-    const promises: Promise<void>[] = [];
-    for (let i = 0; i < 1000; i++) {
-
+    log.debug(`before all requests`);
+    const promises: Promise<ExecuteResult>[] = [];
+    for (let i = 0; i < 10; i++) {
       const respLen = _round(Math.random() * 1025, 0).toString();
+      // const respLen = (5 * 1024 + 1).toString();
       // const respLen = "10";
       log.debug(`before request (resp len=${respLen})`);
-      const host = i % 2 === 0 ? 'localhost' : '127.0.0.1';
-      const port = i % 2 === 0 ? '9990' : '9991';
+      const host = i % 2 === 0 ? "localhost" : "127.0.0.1";
+      const port = i % 2 === 0 ? "9990" : "9991";
       const p = client.execute({
         method: "GET",
         url: `http://${host}:${port}/get`,
         headers: {
           [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
           [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
+          "X-TEST": "abc ",
+          "X-TEST-2": "abc  ",
+        },
+        // bufferSize: 1024,
+        // onInfo: (epoch, message) => {
+        //   log.debug(`info: ${message}`);
+        // },
+        // onHeaderSent: (epoch, header) => {
+        //   log.warn(`header >> ${header}`);
+        // },
+        // onHeaderReceived: (epoch, header) => {
+        //   log.warn(`header << ${header}`);
+        // },
+        // onDataSent: (epoch, data) => {
+        //   log.warn(`data >> ${data.length} bytes`);
+        // },
+        onDataReceived: (epoch, data) => {
+          log.warn(`data << ${data.length} bytes`);
         },
       });
       promises.push(p);
-      log.debug(`after request`);
-
+      // log.debug(`after request`);
     }
 
     await Promise.all(promises);
 
     log.debug(`after all`);
-
-
   } catch (e) {
     console.log(e.message, e);
   } finally {
@@ -49,6 +65,5 @@ const run = async () => {
   stopWebserver(webserver1);
   stopWebserver(webserver2);
 };
-
 
 run();
