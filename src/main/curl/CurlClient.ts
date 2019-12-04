@@ -96,13 +96,10 @@ export class CurlClient {
 
   private registerHandle(handle: Easy, options: ExecuteOptions) {
 
-    // this.multi.addHandle(handle);
-
     if (options.entity instanceof Readable) {
       // if there is a Readable request entity, we need to wait until it's readable
       options.entity.once("readable", () => {
         // request entity is now readable, setup the handle
-        // log.warn(`request entity now readable`);
         this.multi.addHandle(handle);
       });
 
@@ -239,12 +236,9 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
   } else if (options.entity instanceof Readable) {
     // when request entity is a Readable stream
 
-    // log.warn(`registering Readable entity`);
-
     const entityStream = options.entity;
 
     let totalCopied = 0;
-    let totalStreamed = 0;
 
     const holder: { buf: Buffer | null; offset: number; bufBytesRead: number; libcurlPaused: boolean; done: boolean; error?: Error } = {
       buf: null,
@@ -255,38 +249,32 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
     };
 
     entityStream.once("close", () => {
-      // log.warn("entity stream close");
-      // holder.buf = null;
       holder.done = true;
       if (holder.libcurlPaused) {
-        // log.warn("unpausing curl");
         holder.libcurlPaused = false;
         handle.pause(CurlPause.Cont);
       }
     });
     entityStream.once("end", () => {
-      // log.warn("entity stream end");
-      // holder.buf = null;
       holder.done = true;
       if (holder.libcurlPaused) {
-        // log.warn("unpausing curl");
         holder.libcurlPaused = false;
         handle.pause(CurlPause.Cont);
       }
     });
     entityStream.once("error", (e) => {
-      log.warn("entity stream error: " + e.message);
       holder.error = e;
+      if (holder.libcurlPaused) {
+        holder.libcurlPaused = false;
+        handle.pause(CurlPause.Cont);
+      }
     });
     entityStream.on("data", (buf: Buffer) => {
-      totalStreamed += buf.length;
-      // log.warn("entity stream data, pausing...");
       entityStream.pause();
       holder.offset = 0;
       holder.buf = buf;
       holder.bufBytesRead = 0;
       if (holder.libcurlPaused) {
-        // log.warn("unpausing curl");
         holder.libcurlPaused = false;
         handle.pause(CurlPause.Cont);
       }
@@ -295,11 +283,8 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
     // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
     handle.setOpt(Curl.option.READFUNCTION, (libcurlBuffer, size, nitems) => {
 
-      // log.warn("read func");
-
       if (holder.error) {
         flatPromise.reject(holder.error);
-        log.warn("read func abort");
         return CurlReadFunc.Abort;
       }
 
@@ -312,7 +297,6 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
 
       if (holder.buf === null) {
         // need to pause and wait for data
-        // log.warn(`libcurl read func paused`);
         holder.libcurlPaused = true;
         return CurlReadFunc.Pause;
       }
