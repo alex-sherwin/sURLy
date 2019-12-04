@@ -41,15 +41,17 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
           let responseBuf: Buffer;
 
+          const reqBuf = Buffer.concat(bufs);
+
           if (responseType === "echo") {
-            responseBuf = Buffer.concat(bufs);
+            responseBuf = reqBuf;
           } else {
             responseBuf = getRandomResponseBytes(req);
           }
 
           res.statusCode = getResponseStatusCode(req);
 
-          log.silly(`ending web request entity len=${responseBuf.length}`);
+          log.silly(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
           return res.end(responseBuf);
         });
 

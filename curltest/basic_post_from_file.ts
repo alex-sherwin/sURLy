@@ -17,10 +17,10 @@ const run = async () => {
   try {
     log.debug(`before all requests`);
     const promises: Promise<ExecuteResult>[] = [];
-    for (let i = 0; i < 7; i++) {
+    for (let i = 0; i < 11; i++) {
 
       const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
-        highWaterMark: 1024 * 128
+        highWaterMark: 1024 * 128,
       });
 
       const respLen = _round(Math.random() * 1025, 0).toString();
@@ -52,7 +52,7 @@ const run = async () => {
         //   log.warn(`data >> ${data.length} bytes`);
         // },
         onDataReceived: (epoch, data) => {
-          log.warn(`data << ${data.length} bytes`);
+          // log.warn(`data << ${data.length} bytes`);
         },
       });
       promises.push(p);

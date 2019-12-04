@@ -2,6 +2,7 @@
 import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc } from "node-libcurl";
 import { Readable } from "stream";
 import _trimEnd from "lodash/trimEnd";
+import v4 from "uuid/v4";
 
 // local
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
@@ -78,12 +79,14 @@ export class CurlClient {
       handle.setOpt(Curl.option.UPLOAD_BUFFERSIZE, options.sendBufferSize);
     }
 
+    const id = v4();
+
     addRequestCommonOptions(handle, options);
     addRequestHandlers(handle, options);
     addRequestCompression(handle, options);
     addRequestHeaders(handle, options);
     setRequestMethod(handle, options);
-    addRequestEntity(handle, options, flatPromise);
+    addRequestEntity(handle, options, flatPromise, id);
 
     // register and execute the request handle
     this.registerHandle(handle, options);
@@ -99,7 +102,7 @@ export class CurlClient {
       // if there is a Readable request entity, we need to wait until it's readable
       options.entity.once("readable", () => {
         // request entity is now readable, setup the handle
-        log.warn(`request entity now readable`);
+        // log.warn(`request entity now readable`);
         this.multi.addHandle(handle);
       });
 
@@ -215,7 +218,7 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
 
 };
 
-const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
+const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>, id: string): void => {
 
   if (options.entity instanceof Buffer) {
     // when request entity is a Buffer
@@ -236,11 +239,12 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
   } else if (options.entity instanceof Readable) {
     // when request entity is a Readable stream
 
-    log.warn(`registering Readable entity`);
+    // log.warn(`registering Readable entity`);
 
     const entityStream = options.entity;
 
     let totalCopied = 0;
+    let totalStreamed = 0;
 
     const holder: { buf: Buffer | null; offset: number; bufBytesRead: number; libcurlPaused: boolean; done: boolean; error?: Error } = {
       buf: null,
@@ -251,8 +255,8 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
     };
 
     entityStream.once("close", () => {
-      log.warn("entity stream close");
-      holder.buf = null;
+      // log.warn("entity stream close");
+      // holder.buf = null;
       holder.done = true;
       if (holder.libcurlPaused) {
         // log.warn("unpausing curl");
@@ -261,8 +265,8 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       }
     });
     entityStream.once("end", () => {
-      log.warn("entity stream end");
-      holder.buf = null;
+      // log.warn("entity stream end");
+      // holder.buf = null;
       holder.done = true;
       if (holder.libcurlPaused) {
         // log.warn("unpausing curl");
@@ -275,6 +279,7 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       holder.error = e;
     });
     entityStream.on("data", (buf: Buffer) => {
+      totalStreamed += buf.length;
       // log.warn("entity stream data, pausing...");
       entityStream.pause();
       holder.offset = 0;
@@ -298,7 +303,9 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
         return CurlReadFunc.Abort;
       }
 
-      if (holder.done) {
+      if (holder.done && holder.buf === null) {
+        // holder.done might be true before last buf is read due to native lib interaction
+        // so, only be done with READFUNCTION is holder.buf is null
         log.warn(`finished total bytes=${totalCopied.toLocaleString()}`);
         return 0;
       }
@@ -310,17 +317,15 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
         return CurlReadFunc.Pause;
       }
 
-      const maxBytesToRead = size * nitems;
+      let maxBytesToRead = size * nitems;
+      maxBytesToRead = holder.buf.length < maxBytesToRead ? holder.buf.length : maxBytesToRead;
 
       const bytesCopied = holder.buf.copy(libcurlBuffer, 0, holder.offset, maxBytesToRead + holder.offset);
 
       holder.bufBytesRead += bytesCopied;
 
-      // log.warn(`bytesCopied=${bytesCopied}`);
-
       if (holder.bufBytesRead === holder.buf.length) {
-        // read whole buffer, resume the stream
-        // log.warn("resuming entity stream");
+        // read whole buffer, reset tracking and resume the stream
         holder.buf = null;
         entityStream.resume();
       } else {
