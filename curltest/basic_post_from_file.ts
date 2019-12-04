@@ -16,12 +16,16 @@ const run = async () => {
 
   try {
     log.debug(`before all requests`);
+
+    // const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf");
+
     const promises: Promise<ExecuteResult>[] = [];
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 100; i++) {
 
       const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
         highWaterMark: 1024 * 128,
       });
+
 
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = (5 * 1024 + 1).toString();

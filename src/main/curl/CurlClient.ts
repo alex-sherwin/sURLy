@@ -215,6 +215,15 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
 
 };
 
+interface RequestStreamHolder {
+  buf: Buffer | null;
+  offset: number;
+  bufBytesRead: number;
+  libcurlPaused: boolean;
+  done: boolean;
+  error?: Error;
+}
+
 const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>, id: string): void => {
 
   if (options.entity instanceof Buffer) {
@@ -238,9 +247,9 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
 
     const entityStream = options.entity;
 
-    let totalCopied = 0;
+    // setup a holder who is captured by the READFUNCTION lambda scope
 
-    const holder: { buf: Buffer | null; offset: number; bufBytesRead: number; libcurlPaused: boolean; done: boolean; error?: Error } = {
+    const holder: RequestStreamHolder = {
       buf: null,
       bufBytesRead: 0,
       offset: 0,
@@ -248,21 +257,20 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       done: false,
     };
 
-    entityStream.once("close", () => {
+    // watch the read stream...
+
+    const whenDone = () => {
       holder.done = true;
       if (holder.libcurlPaused) {
         holder.libcurlPaused = false;
         handle.pause(CurlPause.Cont);
       }
-    });
-    entityStream.once("end", () => {
-      holder.done = true;
-      if (holder.libcurlPaused) {
-        holder.libcurlPaused = false;
-        handle.pause(CurlPause.Cont);
-      }
-    });
+    };
+
+    entityStream.once("close", whenDone);
+    entityStream.once("end", whenDone);
     entityStream.once("error", (e) => {
+      // the READFUNCTION will abort libcurl + Promise.reject when it sees this
       holder.error = e;
       if (holder.libcurlPaused) {
         holder.libcurlPaused = false;
@@ -270,10 +278,13 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       }
     });
     entityStream.on("data", (buf: Buffer) => {
+      // pause the stream until the READFUNCTION fully reads the current buffer
       entityStream.pause();
+      // reset the current buffer, offset and how many bytes have been read from the current buffer
       holder.offset = 0;
       holder.buf = buf;
       holder.bufBytesRead = 0;
+      // if the Easy handle is paused, continue it to re-invoke the READFUNCTION
       if (holder.libcurlPaused) {
         holder.libcurlPaused = false;
         handle.pause(CurlPause.Cont);
@@ -291,7 +302,6 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       if (holder.done && holder.buf === null) {
         // holder.done might be true before last buf is read due to native lib interaction
         // so, only be done with READFUNCTION is holder.buf is null
-        log.warn(`finished total bytes=${totalCopied.toLocaleString()}`);
         return 0;
       }
 
@@ -317,8 +327,8 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
         holder.offset += bytesCopied;
       }
 
-      totalCopied += bytesCopied;
-
+      // if we copied no bytes, go to pause mode...
+      // we should have more bytes because we aren't logically done streaming
       return bytesCopied === 0 ? CurlReadFunc.Pause : bytesCopied;
 
     });
