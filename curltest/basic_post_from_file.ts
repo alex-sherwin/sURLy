@@ -17,7 +17,7 @@ const run = async () => {
   try {
     log.debug(`before all requests`);
     const promises: Promise<ExecuteResult>[] = [];
-    for (let i = 0; i < 1; i++) {
+    for (let i = 0; i < 7; i++) {
 
       const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
         highWaterMark: 1024 * 128
@@ -37,7 +37,7 @@ const run = async () => {
           "X-TEST-2": "abc  ",
         },
         entity: requestEntity,
-        sendBufferSize: (128 * 1024) - 16,
+        sendBufferSize: (128 * 1024) + 16,
         // bufferSize: 1024,
         // onInfo: (epoch, message) => {
         //   log.debug(`info: ${message}`);
