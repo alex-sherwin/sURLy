@@ -1,6 +1,6 @@
 // third party
 import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc } from "node-libcurl";
-import { Readable } from "stream";
+import { Readable, Writable, Duplex } from "stream";
 import _trimEnd from "lodash/trimEnd";
 import v4 from "uuid/v4";
 
@@ -37,12 +37,14 @@ const LAST_HEADER = Buffer.from("\r\n");
 
 export interface ExecuteResult {
   status: number;
+  entity: Readable;
 }
 
 export class CurlClient {
 
   private handles: Easy[] = [];
   private flatPromises: FlatPromise<ExecuteResult>[] = [];
+  private responseEntities: Duplex[] = [];
 
   private multi: Multi;
 
@@ -61,7 +63,7 @@ export class CurlClient {
 
   public execute(options: ExecuteOptions): Promise<ExecuteResult> {
 
-    const [handle, flatPromise] = this.createHandle();
+    const [handle, flatPromise, responseEntity] = this.createHandle();
 
     // need to handle buffer size out here since it might need to reject + return
     if (typeof options.receiveBufferSize === "number") {
@@ -86,7 +88,7 @@ export class CurlClient {
     addRequestCompression(handle, options);
     addRequestHeaders(handle, options);
     setRequestMethod(handle, options);
-    addRequestEntity(handle, options, flatPromise, id);
+    addRequestEntity(handle, options, flatPromise, responseEntity, id);
 
     // register and execute the request handle
     this.registerHandle(handle, options);
@@ -110,7 +112,7 @@ export class CurlClient {
   }
 
   private onMessage(err: Error | undefined, handle: Easy, errCode: CurlCode): void {
-    const [flatPromise] = this.getHandleParts(handle);
+    const [flatPromise, responseEntity] = this.getHandleParts(handle);
 
     // node Error
     if (err) {
@@ -130,23 +132,25 @@ export class CurlClient {
     // close the Easy handle
     handle.close();
 
-    return flatPromise.resolve({ status });
+    return flatPromise.resolve({ status, entity: responseEntity });
   }
 
-  private getHandleParts(handle: Easy): [FlatPromise<ExecuteResult>] {
+  private getHandleParts(handle: Easy): [FlatPromise<ExecuteResult>, Duplex] {
     const idx = this.handles.indexOf(handle);
     if (idx === -1) {
       throw new Error(`failed to find index for handle`);
     }
-    return [this.flatPromises[idx]];
+    return [this.flatPromises[idx], this.responseEntities[idx]];
   }
 
-  private createHandle(): [Easy, FlatPromise<ExecuteResult>] {
+  private createHandle(): [Easy, FlatPromise<ExecuteResult>, Duplex] {
     const flatPromise = createFlatPromise<ExecuteResult>();
     const handle = new Easy();
     this.handles.push(handle);
     this.flatPromises.push(flatPromise);
-    return [handle, flatPromise];
+    const responseEntity = new Duplex();
+    this.responseEntities.push();
+    return [handle, flatPromise, responseEntity];
   }
 
   public close() {
@@ -161,7 +165,28 @@ const addRequestCommonOptions = (handle: Easy, options: ExecuteOptions): void =>
   handle.setOpt(Curl.option.VERBOSE, 1);
 };
 
+const bufs: Buffer[] = [];
+import fs from "fs";
+
 const addRequestHandlers = (handle: Easy, options: ExecuteOptions): void => {
+
+  handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => {
+
+    log.error(`got data len=${data.length} [${data.toString("utf8")}]`);
+
+    bufs.push(Buffer.from(data));
+
+    const allBufs = Buffer.concat(bufs);
+    console.log(`all bufs [${allBufs.toString("utf8")}]`);
+
+
+
+    fs.writeFileSync("/Users/asherwin/Desktop/out.gz", allBufs);
+
+    // return size * nmemb;
+    return data.length;
+  });
+
   handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
     const now = Date.now();
     switch (infoType) {
@@ -224,7 +249,7 @@ interface RequestStreamHolder {
   error?: Error;
 }
 
-const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>, id: string): void => {
+const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>, responseEntity: Duplex, id: string): void => {
 
   if (options.entity instanceof Buffer) {
     // when request entity is a Buffer
@@ -342,6 +367,7 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
 };
 
 const addRequestCompression = (handle: Easy, options: ExecuteOptions): void => {
+  // handle. setOpt(Curl.option.ACCEPT_ENCODING, null); // explicitly disable automatic decompression
   if (options.compression) {
     // enables automatic Accept-Encoding request header + de-compression of results when using empty string ""
     handle.setOpt(Curl.option.ACCEPT_ENCODING, "");

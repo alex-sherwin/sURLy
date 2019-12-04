@@ -16,7 +16,7 @@ const run = async () => {
   try {
     log.debug(`before all requests`);
     const promises: Promise<ExecuteResult>[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 1; i++) {
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = (5 * 1024 + 1).toString();
       // const respLen = "10";
@@ -26,9 +26,12 @@ const run = async () => {
       const p = client.execute({
         method: "GET",
         url: `http://${host}:${port}/get`,
+        compression: true,
         headers: {
           [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
-          [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
+          // [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
+          [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: "10",
+          "Accept-Encoding": "gzip",
           "X-TEST": "abc ",
           "X-TEST-2": "abc  ",
         },
@@ -39,14 +42,14 @@ const run = async () => {
         // onHeaderSent: (epoch, header) => {
         //   log.warn(`header >> ${header}`);
         // },
-        // onHeaderReceived: (epoch, header) => {
-        //   log.warn(`header << ${header}`);
-        // },
+        onHeaderReceived: (epoch, header) => {
+          log.warn(`header << ${header}`);
+        },
         // onDataSent: (epoch, data) => {
         //   log.warn(`data >> ${data.length} bytes`);
         // },
         onDataReceived: (epoch, data) => {
-          log.warn(`data << ${data.length} bytes`);
+          log.warn(`data << ${data.length} bytes [${data.toString("utf8")}]`);
         },
       });
       promises.push(p);

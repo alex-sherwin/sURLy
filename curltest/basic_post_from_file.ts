@@ -18,13 +18,17 @@ const run = async () => {
     log.debug(`before all requests`);
 
     // const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf");
+    const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/solar.xlsx");
 
     const promises: Promise<ExecuteResult>[] = [];
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 1; i++) {
 
-      const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
-        highWaterMark: 1024 * 128,
-      });
+      // const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
+      //   highWaterMark: 1024 * 128,
+      // });
+      // const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/solar.xlsx", {
+      //   highWaterMark: 1024 * 128,
+      // });
 
 
       const respLen = _round(Math.random() * 1025, 0).toString();
