@@ -8,13 +8,12 @@ import { log } from "../log";
 // reaelly local
 import { Headers } from "./headers";
 
-
-const DEFAULT_MAX_RESPONSE_RANDOM_BYTES = 1025; // not a typo, force extra buffers for default sizes of 16, 32, 64, 128 etc.
+// not a typo, force extra buffers for default sizes of 16, 32, 64, 128 etc.
+const DEFAULT_MAX_RESPONSE_RANDOM_BYTES = 1025;
 
 export const startWebserver = (port: number): Promise<http.Server> => {
 
   return new Promise((resolve, reject) => {
-
 
     log.info(`starting webserver on port ${port}...`);
 

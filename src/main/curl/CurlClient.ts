@@ -1,11 +1,11 @@
 // third party
-import { Curl, CurlCode, Easy, Multi, CurlInfoDebug } from "node-libcurl";
-import { Readable, Writable } from "stream";
+import { Curl, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc } from "node-libcurl";
+import { Readable } from "stream";
 import _trimEnd from "lodash/trimEnd";
 
 // local
-import { log } from "../../shared/log";
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
+import { log } from "../../shared/log";
 
 interface Headers {
   [keyof: string]: string;
@@ -23,7 +23,8 @@ export interface ExecuteOptions {
   compression?: boolean;
   entity?: Buffer | Readable;
   /** must be at least 1024 */
-  bufferSize?: number;
+  receiveBufferSize?: number;
+  sendBufferSize?: number;
   onInfo?: (epoch: number, message: string) => void;
   onHeaderSent?: (epoch: number, header: string) => void;
   onHeaderReceived?: (epoch: number, header: string) => void;
@@ -38,6 +39,7 @@ export interface ExecuteResult {
 }
 
 export class CurlClient {
+
   private handles: Easy[] = [];
   private flatPromises: FlatPromise<ExecuteResult>[] = [];
 
@@ -60,24 +62,48 @@ export class CurlClient {
 
     const [handle, flatPromise] = this.createHandle();
 
-    // need to handle buffer size out here since it might reject
-    if (typeof options.bufferSize === "number") {
-      if (options.bufferSize < 1024) {
+    // need to handle buffer size out here since it might need to reject + return
+    if (typeof options.receiveBufferSize === "number") {
+      if (options.receiveBufferSize < 1024 || options.receiveBufferSize > 512 * 1024) {
         handle.close();
-        return Promise.reject(new Error(`libcurl option "CURLOPT_BUFFERSIZE" cannot be set to a value < 1024, you requested ${options.bufferSize}`));
+        return Promise.reject(new Error(`libcurl option "CURLOPT_BUFFERSIZE" cannot be set to a value < 1024 or > ${512 * 1024}, you requested ${options.receiveBufferSize}`));
       }
-      handle.setOpt(Curl.option.BUFFERSIZE, options.bufferSize);
+      handle.setOpt(Curl.option.BUFFERSIZE, options.receiveBufferSize);
+    }
+    if (typeof options.sendBufferSize === "number") {
+      if (options.sendBufferSize < 16 * 1024 || options.sendBufferSize > 2 * 1024 * 1024) {
+        handle.close();
+        return Promise.reject(new Error(`libcurl option "UPLOAD_BUFFERSIZE" cannot be set to a value < ${16 * 1024} or > ${2 * 1024 * 1024}, you requested ${options.sendBufferSize}`));
+      }
+      handle.setOpt(Curl.option.UPLOAD_BUFFERSIZE, options.sendBufferSize);
     }
 
     addRequestCommonOptions(handle, options);
     addRequestHandlers(handle, options);
     addRequestCompression(handle, options);
     addRequestHeaders(handle, options);
+    setRequestMethod(handle, options);
+    addRequestEntity(handle, options, flatPromise);
 
     // register and execute the request handle
-    this.multi.addHandle(handle);
+    this.registerHandle(handle, options);
 
     return flatPromise.promise;
+  }
+
+  private registerHandle(handle: Easy, options: ExecuteOptions) {
+    if (options.entity instanceof Readable) {
+      // if there is a Readable request entity, we need to wait until it's readable
+      options.entity.once("readable", () => {
+        // request entity is now readable, setup the handle
+        log.warn(`request entity now readable`);
+        this.multi.addHandle(handle);
+      });
+
+    } else {
+      // add the handle immediately
+      this.multi.addHandle(handle);
+    }
   }
 
   private onMessage(err: Error | undefined, handle: Easy, errCode: CurlCode): void {
@@ -96,10 +122,12 @@ export class CurlClient {
     // we know since it's CurlCode.CURLE_OK that this will be a HTTP status code as a number
     const status = handle.getInfo(Curl.info.RESPONSE_CODE).data as number;
 
+    // remove the Easy handle from the Multi instance
     this.multi.removeHandle(handle);
+    // close the Easy handle
     handle.close();
 
-    flatPromise.resolve({ status });
+    return flatPromise.resolve({ status });
   }
 
   private getHandleParts(handle: Easy): [FlatPromise<ExecuteResult>] {
@@ -176,6 +204,84 @@ const addRequestHandlers = (handle: Easy, options: ExecuteOptions): void => {
   });
 };
 
+const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
+
+  if (options.method === "POST") {
+    handle.setOpt(Curl.option.POST, 1);
+  }
+
+};
+
+const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
+
+  if (options.entity instanceof Buffer) {
+    // when request entity is a Buffer
+
+    let offset = 0;
+    const entityBuf = options.entity;
+
+    handle.setOpt(Curl.option.POSTFIELDSIZE, entityBuf.length);
+
+    // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
+    handle.setOpt(Curl.option.READFUNCTION, (data, size, nitems) => {
+      const maxBytesToRead = size * nitems;
+      const bytesCopied = entityBuf.copy(data, 0, offset, maxBytesToRead + offset);
+      offset += bytesCopied;
+      return bytesCopied;
+    });
+
+  } else if (options.entity instanceof Readable) {
+    // when request entity is a Readable stream
+
+    log.warn(`registering Readable entity`);
+
+    const entityStream = options.entity;
+
+    let totalCopied = 0;
+
+    // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
+    handle.setOpt(Curl.option.READFUNCTION, (libcurlBuffer, size, nitems) => {
+
+      try {
+
+        let maxBytesToRead = size * nitems;
+
+        const readableLength = entityStream.readableLength;
+
+        log.warn(`readableLen=${readableLength} destroyed=${entityStream.destroyed} readable=${entityStream.readable}`);
+
+        maxBytesToRead = readableLength < maxBytesToRead ? readableLength : maxBytesToRead;
+
+
+
+        const chunk: Buffer | null = entityStream.read(maxBytesToRead);
+
+        if (null === chunk) {
+          log.warn(`no more request entity chunks left, done streaming, total=${totalCopied.toLocaleString()}`);
+          // nothing left to read
+          return 0;
+        }
+
+        const writtenBytes = chunk.copy(libcurlBuffer);
+        totalCopied += writtenBytes;
+        // log.warn(`copied ${writtenBytes} to libcurl request entity buffer from stream (so far=${totalCopied})`);
+        return writtenBytes;
+
+      } catch (e) {
+        log.error(`read func error: ${e.message}`);
+        flatPromise.reject(e);
+        return CurlReadFunc.Abort;
+      }
+    });
+
+    entityStream.on("error", (e) => {
+      log.error(`stream error: ${e.message}`);
+      flatPromise.reject(e);
+    });
+
+  }
+};
+
 const addRequestCompression = (handle: Easy, options: ExecuteOptions): void => {
   if (options.compression) {
     // enables automatic Accept-Encoding request header + de-compression of results when using empty string ""
@@ -187,9 +293,14 @@ const addRequestHeaders = (handle: Easy, options: ExecuteOptions): void => {
   let headers: string[] = [];
   headers.push("Expect:"); // need this to disable Expect: 100-continue
 
-  if (options.headers) {
-    headers = [...headers, ...headerMapToStrings(options.headers)];
+  // if we're sending an entity and it's a Readable we need to ensure a chunked transfer encoding
+  const safeHeaders: Headers = { ...options.headers };
+
+  if (options.entity instanceof Readable) {
+    safeHeaders["Transfer-Encoding"] = "chunked";
   }
+
+  headers = [...headers, ...headerMapToStrings(safeHeaders)];
 
   handle.setOpt(Curl.option.HTTPHEADER, headers);
 };
