@@ -11,8 +11,6 @@ import { log } from "../../shared/log";
 import { ClientOptions, ExecuteOptions, ExecuteResult, HttpHeaders } from "./PublicTypes";
 import { RequestParts, RequestStreamHolder } from "./PrivateTypes";
 
-const LAST_HEADER = Buffer.from("\r\n");
-
 export class CurlClient {
   private handles: Easy[] = [];
   parts: RequestParts[] = [];
@@ -36,31 +34,9 @@ export class CurlClient {
     const [handle, parts] = this.createHandle(options);
     const { flatPromise } = parts;
 
-    // need to handle buffer size out here since it might need to reject + return
-    if (typeof options.receiveBufferSize === "number") {
-      if (options.receiveBufferSize < 1024 || options.receiveBufferSize > 512 * 1024) {
-        handle.close();
-        return Promise.reject(
-          new Error(
-            `libcurl option "CURLOPT_BUFFERSIZE" cannot be set to a value < 1024 or > ${512 *
-            1024}, you requested ${options.receiveBufferSize}`
-          )
-        );
-      }
-      handle.setOpt(Curl.option.BUFFERSIZE, options.receiveBufferSize);
-    }
-    if (typeof options.sendBufferSize === "number") {
-      if (options.sendBufferSize < 16 * 1024 || options.sendBufferSize > 2 * 1024 * 1024) {
-        handle.close();
-        return Promise.reject(
-          new Error(
-            `libcurl option "UPLOAD_BUFFERSIZE" cannot be set to a value < ${16 * 1024} or > ${2 *
-            1024 *
-            1024}, you requested ${options.sendBufferSize}`
-          )
-        );
-      }
-      handle.setOpt(Curl.option.UPLOAD_BUFFERSIZE, options.sendBufferSize);
+    const maybeError = addOptionsThatMightReject(handle, options);
+    if (maybeError instanceof Error) {
+      return Promise.reject(maybeError);
     }
 
     addRequestCommonOptions(handle, options);
@@ -70,7 +46,7 @@ export class CurlClient {
     addRequestEntity(handle, options, flatPromise);
     addRequestHeaders(handle, options);
 
-    // register and execute the request handle
+    // register and execute the libcurl Easy handle
     this.registerHandle(handle, parts);
 
     return flatPromise.promise;
@@ -165,6 +141,34 @@ export class CurlClient {
   }
 }
 
+const addOptionsThatMightReject = (handle: Easy, options: ExecuteOptions): Error | null => {
+
+  // need to handle buffer size out here since it might need to reject + return
+  if (typeof options.receiveBufferSize === "number") {
+    if (options.receiveBufferSize < 1024 || options.receiveBufferSize > 512 * 1024) {
+      handle.close();
+      return new Error(
+        `libcurl option "CURLOPT_BUFFERSIZE" cannot be set to a value < 1024 or > ${512 *
+        1024}, you requested ${options.receiveBufferSize}`
+      );
+    }
+    handle.setOpt(Curl.option.BUFFERSIZE, options.receiveBufferSize);
+  }
+  if (typeof options.sendBufferSize === "number") {
+    if (options.sendBufferSize < 16 * 1024 || options.sendBufferSize > 2 * 1024 * 1024) {
+      handle.close();
+      return new Error(
+        `libcurl option "UPLOAD_BUFFERSIZE" cannot be set to a value < ${16 * 1024} or > ${2 *
+        1024 *
+        1024}, you requested ${options.sendBufferSize}`
+      );
+    }
+    handle.setOpt(Curl.option.UPLOAD_BUFFERSIZE, options.sendBufferSize);
+  }
+
+  return null;
+};
+
 const addRequestCommonOptions = (handle: Easy, options: ExecuteOptions): void => {
   handle.setOpt(Curl.option.URL, options.url);
   handle.setOpt(Curl.option.NOPROGRESS, 1);
@@ -242,6 +246,8 @@ const processHeaderForTracking = (header: string, parts: RequestParts): void => 
   }
 };
 
+const LAST_HEADER = Buffer.from("\r\n");
+
 const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
 
   const { infos } = parts;
@@ -276,6 +282,15 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
 
 const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
   if (options.requestEntity instanceof Buffer) {
+    return addRequestBufferEntity(handle, options, flatPromise);
+  // tslint:disable-next-line:no-else-after-return
+  } else if (options.requestEntity instanceof Readable) {
+    return addRequestStreamEntity(handle, options, flatPromise);
+  }
+};
+
+const addRequestBufferEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
+  if (options.requestEntity instanceof Buffer) {
     // when request entity is a Buffer
 
     let offset = 0;
@@ -290,7 +305,11 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       offset += bytesCopied;
       return bytesCopied;
     });
-  } else if (options.requestEntity instanceof Readable) {
+  }
+}
+
+const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
+  if (options.requestEntity instanceof Readable) {
     // when request entity is a Readable stream
 
     const entityStream = options.requestEntity;
@@ -390,6 +409,7 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
     });
   }
 };
+
 
 const addRequestHeaders = (handle: Easy, options: ExecuteOptions): void => {
   let headers: string[] = [];
