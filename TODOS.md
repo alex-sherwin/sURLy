@@ -3,6 +3,7 @@
   * POST
   * PUT
   * DELETE
+1. check what auto headers are sent out (Transfer-Encoding, Accept, Content-Type)
 1. ensure request entities work with all methods (including GET)
 1. ensure auto compression works
 1. figure out entity value extraction via expressions
