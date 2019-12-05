@@ -10,6 +10,7 @@ import { log } from "../../shared/log";
 // really local
 import { ClientOptions, ExecuteOptions, ExecuteResult, HttpHeaders } from "./PublicTypes";
 import { RequestParts, RequestStreamHolder } from "./PrivateTypes";
+import { parseResponseHeaders, bufToHeaderLines, headerMapToStrings } from "./Headers";
 
 export class CurlClient {
   private handles: Easy[] = [];
@@ -36,6 +37,7 @@ export class CurlClient {
 
     const maybeError = addOptionsThatMightReject(handle, options);
     if (maybeError instanceof Error) {
+      this.safeCleanupHandle(handle);
       return Promise.reject(maybeError);
     }
 
@@ -81,11 +83,13 @@ export class CurlClient {
 
     // node Error
     if (err) {
+      this.safeCleanupHandle(handle);
       return flatPromise.reject(err);
     }
 
     // libcurl error code (not http status code!)
     if (errCode !== CurlCode.CURLE_OK) {
+      this.safeCleanupHandle(handle);
       return flatPromise.reject(getErrorForCurlCode(errCode));
     }
 
@@ -98,6 +102,8 @@ export class CurlClient {
     handle.close();
 
     const [httpVersion, headers] = parseResponseHeaders(parts.receivedHeaders);
+
+    this.safeCleanupHandle(handle);
 
     return flatPromise.resolve({
       status,
@@ -134,6 +140,14 @@ export class CurlClient {
     };
     this.parts.push(parts);
     return [handle, parts];
+  }
+
+  private safeCleanupHandle(handle: Easy): void {
+    const idx = this.handles.indexOf(handle);
+    if (idx !== -1) {
+      this.handles.splice(idx, 1);
+      this.parts.splice(idx, 1);
+    }
   }
 
   public close() {
@@ -225,7 +239,7 @@ const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
 
   }
 
-}
+};
 
 const CONTENT_TYPE_HEADER_REGEX = /content-type: *(.*)/i;
 const CONTENT_ENCODING_HEADER_REGEX = /content-encoding: *(.*)/i;
@@ -237,12 +251,14 @@ const processHeaderForTracking = (header: string, parts: RequestParts): void => 
   if (matches) {
     // this is the content type header, extract the content type
     parts.entityContentType = matches[1].trim();
+    return; // optimistic quit
   }
 
   matches = CONTENT_ENCODING_HEADER_REGEX.exec(header);
   if (matches) {
     // this is the content type header, extract the content type
     parts.entityEncoding = matches[1].trim();
+    return; // optimistic quit
   }
 };
 
@@ -283,7 +299,7 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
 const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
   if (options.requestEntity instanceof Buffer) {
     return addRequestBufferEntity(handle, options, flatPromise);
-  // tslint:disable-next-line:no-else-after-return
+    // tslint:disable-next-line:no-else-after-return
   } else if (options.requestEntity instanceof Readable) {
     return addRequestStreamEntity(handle, options, flatPromise);
   }
@@ -306,7 +322,7 @@ const addRequestBufferEntity = (handle: Easy, options: ExecuteOptions, flatPromi
       return bytesCopied;
     });
   }
-}
+};
 
 const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
   if (options.requestEntity instanceof Readable) {
@@ -410,7 +426,6 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
   }
 };
 
-
 const addRequestHeaders = (handle: Easy, options: ExecuteOptions): void => {
   let headers: string[] = [];
   headers.push("Expect:"); // need this to disable Expect: 100-continue
@@ -425,70 +440,6 @@ const addRequestHeaders = (handle: Easy, options: ExecuteOptions): void => {
   headers = [...headers, ...headerMapToStrings(safeHeaders)];
 
   handle.setOpt(Curl.option.HTTPHEADER, headers);
-};
-
-const bufToHeaderLines = (headers: Buffer): string[] => {
-  const str = _trimEnd(headers.toString(), "\r\n");
-  if (str.indexOf("\n") !== -1) {
-    // multiple headers
-    const rawSplit = str.split("\n");
-    return rawSplit.map(it => _trimEnd(it, "\r\n")).filter(it => it.length > 0);
-  }
-  // single header
-  return [str].filter(it => it.length > 0);
-};
-
-const headerMapToStrings = (headers: HttpHeaders): string[] => {
-  const strings: string[] = [];
-  for (const headerName in headers) {
-    const headerValue = headers[headerName];
-    if (typeof headerValue === "string") {
-      strings.push(`${headerName}: ${headerValue}`);
-    } else {
-      // array, push for each
-      for (const currentHeaderValue of headerValue) {
-        strings.push(`${headerName}: ${currentHeaderValue}`);
-      }
-    }
-  }
-  return strings;
-};
-
-const HTTP_REGEX = /http\/1\.([0-1])/i;
-
-/**
- * Parses the response header strings
- * 
- * @param headerStrings Tuple of [HTTP_VERSION, HEADERS]
- */
-const parseResponseHeaders = (headerStrings: string[]): [string, HttpHeaders] => {
-  const headers: HttpHeaders = {};
-  let httpVersion = "";
-  for (const headerString of headerStrings) {
-    const splitterIndex = headerString.indexOf(":");
-
-    if (splitterIndex === -1) {
-      // probably the HTTP version + status code line
-      const matches = HTTP_REGEX.exec(headerString);
-      if (matches) {
-        httpVersion = `1.${matches[1]}`;
-      }
-
-    } else {
-      // regular header
-      const name = headerString.substr(0, splitterIndex);
-      const value = headerString.substr(splitterIndex + 1).trimLeft();
-      if (typeof headers[name] === "undefined") {
-        headers[name] = value;
-      } else if (typeof headers[name] === "string") {
-        // convert from string -> string[]
-        headers[name] = [headers[name] as string, value];
-      } else if (Array.isArray(headers[name])) {
-        (headers[name] as string[]).push(value);
-      }
-    }
-  }
-  return [httpVersion, headers];
 };
 
 const getErrorForCurlCode = (code: CurlCode): Error => {
