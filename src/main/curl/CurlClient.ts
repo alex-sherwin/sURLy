@@ -1,79 +1,17 @@
 // third party
-import {
-  Curl,
-  CurlPause,
-  CurlCode,
-  Easy,
-  Multi,
-  CurlInfoDebug,
-  CurlReadFunc,
-  CurlWriteFunc
-} from "node-libcurl";
-import { Readable, Writable } from "stream";
+import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc, CurlWriteFunc } from "node-libcurl";
+import { Readable } from "stream";
 import _trimEnd from "lodash/trimEnd";
 
 // local
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
 import { log } from "../../shared/log";
 
-export interface Headers {
-  [keyof: string]: string | string[];
-}
-
-export interface ClientOptions {
-  maxConnectionsPerHost?: number;
-  maxConnections?: number;
-}
-
-export interface ExecuteOptions {
-  url: string;
-  method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS";
-  headers?: Headers;
-  /** Optional request entity */
-  requestEntity?: Buffer | Readable;
-  /**
-   * If provided, the response entity will be streamed to it.
-   *
-   * `Writable.end()` will be called when the request finishes.
-   */
-  responseEntity?: Writable;
-  /** must be at leat 1024, can't be over 2MB */
-  sendBufferSize?: number;
-  /** must be at least 1024, can't be over 512KB */
-  receiveBufferSize?: number;
-}
+// really local
+import { ClientOptions, ExecuteOptions, ExecuteResult, HttpHeaders } from "./PublicTypes";
+import { RequestParts, RequestStreamHolder } from "./PrivateTypes";
 
 const LAST_HEADER = Buffer.from("\r\n");
-
-export interface Info {
-  at: number;
-  message: string;
-}
-
-export interface ExecuteResult {
-  status: number;
-  headers: Headers;
-  infos: Info[];
-  start: number;
-  end: number;
-  httpVersion: string;
-  entityBytesReceived: number;
-  entityContentType?: string;
-  entityEncoding: "identity" | "gzip" | "compress" | "deflate" | "br" | string;
-}
-
-interface RequestParts {
-  flatPromise: FlatPromise<ExecuteResult>;
-  options: ExecuteOptions;
-  receivedHeaders: string[];
-  infos: Info[];
-  start?: number;
-  end?: number;
-  httpVersion?: string;
-  entityBytesReceived: number;
-  entityContentType?: string;
-  entityEncoding: "identity" | "gzip" | "compress" | "deflate" | "br" | string;
-}
 
 export class CurlClient {
   private handles: Easy[] = [];
@@ -336,15 +274,6 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
   }
 };
 
-interface RequestStreamHolder {
-  buf: Buffer | null;
-  offset: number;
-  bufBytesRead: number;
-  libcurlPaused: boolean;
-  done: boolean;
-  error?: Error;
-}
-
 const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
   if (options.requestEntity instanceof Buffer) {
     // when request entity is a Buffer
@@ -467,7 +396,7 @@ const addRequestHeaders = (handle: Easy, options: ExecuteOptions): void => {
   headers.push("Expect:"); // need this to disable Expect: 100-continue
 
   // if we're sending an entity and it's a Readable we need to ensure a chunked transfer encoding
-  const safeHeaders: Headers = { ...options.headers };
+  const safeHeaders: HttpHeaders = { ...options.headers };
 
   if (options.requestEntity instanceof Readable) {
     safeHeaders["Transfer-Encoding"] = "chunked";
@@ -489,7 +418,7 @@ const bufToHeaderLines = (headers: Buffer): string[] => {
   return [str].filter(it => it.length > 0);
 };
 
-const headerMapToStrings = (headers: Headers): string[] => {
+const headerMapToStrings = (headers: HttpHeaders): string[] => {
   const strings: string[] = [];
   for (const headerName in headers) {
     const headerValue = headers[headerName];
@@ -512,8 +441,8 @@ const HTTP_REGEX = /http\/1\.([0-1])/i;
  * 
  * @param headerStrings Tuple of [HTTP_VERSION, HEADERS]
  */
-const parseResponseHeaders = (headerStrings: string[]): [string, Headers] => {
-  const headers: Headers = {};
+const parseResponseHeaders = (headerStrings: string[]): [string, HttpHeaders] => {
+  const headers: HttpHeaders = {};
   let httpVersion = "";
   for (const headerString of headerStrings) {
     const splitterIndex = headerString.indexOf(":");
