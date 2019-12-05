@@ -1,15 +1,23 @@
 // third party
-import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc } from "node-libcurl";
-import { Readable, Writable, Duplex } from "stream";
+import {
+  Curl,
+  CurlPause,
+  CurlCode,
+  Easy,
+  Multi,
+  CurlInfoDebug,
+  CurlReadFunc,
+  CurlWriteFunc
+} from "node-libcurl";
+import { Readable, Writable } from "stream";
 import _trimEnd from "lodash/trimEnd";
-import v4 from "uuid/v4";
 
 // local
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
 import { log } from "../../shared/log";
 
-interface Headers {
-  [keyof: string]: string;
+export interface Headers {
+  [keyof: string]: string | string[];
 }
 
 export interface ClientOptions {
@@ -21,30 +29,55 @@ export interface ExecuteOptions {
   url: string;
   method: "GET" | "POST" | "PUT" | "DELETE" | "HEAD" | "OPTIONS";
   headers?: Headers;
-  compression?: boolean;
-  entity?: Buffer | Readable;
-  /** must be at least 1024 */
-  receiveBufferSize?: number;
+  /** Optional request entity */
+  requestEntity?: Buffer | Readable;
+  /**
+   * If provided, the response entity will be streamed to it.
+   *
+   * `Writable.end()` will be called when the request finishes.
+   */
+  responseEntity?: Writable;
+  /** must be at leat 1024, can't be over 2MB */
   sendBufferSize?: number;
-  onInfo?: (epoch: number, message: string) => void;
-  onHeaderSent?: (epoch: number, header: string) => void;
-  onHeaderReceived?: (epoch: number, header: string) => void;
-  onDataSent?: (epoch: number, buf: Buffer) => void;
-  onDataReceived?: (epoch: number, buf: Buffer) => void;
+  /** must be at least 1024, can't be over 512KB */
+  receiveBufferSize?: number;
 }
 
 const LAST_HEADER = Buffer.from("\r\n");
 
+export interface Info {
+  at: number;
+  message: string;
+}
+
 export interface ExecuteResult {
   status: number;
-  entity: Readable;
+  headers: Headers;
+  infos: Info[];
+  start: number;
+  end: number;
+  httpVersion: string;
+  entityBytesReceived: number;
+  entityContentType?: string;
+  entityEncoding: "identity" | "gzip" | "compress" | "deflate" | "br" | string;
+}
+
+interface RequestParts {
+  flatPromise: FlatPromise<ExecuteResult>;
+  options: ExecuteOptions;
+  receivedHeaders: string[];
+  infos: Info[];
+  start?: number;
+  end?: number;
+  httpVersion?: string;
+  entityBytesReceived: number;
+  entityContentType?: string;
+  entityEncoding: "identity" | "gzip" | "compress" | "deflate" | "br" | string;
 }
 
 export class CurlClient {
-
   private handles: Easy[] = [];
-  private flatPromises: FlatPromise<ExecuteResult>[] = [];
-  private responseEntities: Duplex[] = [];
+  parts: RequestParts[] = [];
 
   private multi: Multi;
 
@@ -62,57 +95,75 @@ export class CurlClient {
   }
 
   public execute(options: ExecuteOptions): Promise<ExecuteResult> {
-
-    const [handle, flatPromise, responseEntity] = this.createHandle();
+    const [handle, parts] = this.createHandle(options);
+    const { flatPromise } = parts;
 
     // need to handle buffer size out here since it might need to reject + return
     if (typeof options.receiveBufferSize === "number") {
       if (options.receiveBufferSize < 1024 || options.receiveBufferSize > 512 * 1024) {
         handle.close();
-        return Promise.reject(new Error(`libcurl option "CURLOPT_BUFFERSIZE" cannot be set to a value < 1024 or > ${512 * 1024}, you requested ${options.receiveBufferSize}`));
+        return Promise.reject(
+          new Error(
+            `libcurl option "CURLOPT_BUFFERSIZE" cannot be set to a value < 1024 or > ${512 *
+            1024}, you requested ${options.receiveBufferSize}`
+          )
+        );
       }
       handle.setOpt(Curl.option.BUFFERSIZE, options.receiveBufferSize);
     }
     if (typeof options.sendBufferSize === "number") {
       if (options.sendBufferSize < 16 * 1024 || options.sendBufferSize > 2 * 1024 * 1024) {
         handle.close();
-        return Promise.reject(new Error(`libcurl option "UPLOAD_BUFFERSIZE" cannot be set to a value < ${16 * 1024} or > ${2 * 1024 * 1024}, you requested ${options.sendBufferSize}`));
+        return Promise.reject(
+          new Error(
+            `libcurl option "UPLOAD_BUFFERSIZE" cannot be set to a value < ${16 * 1024} or > ${2 *
+            1024 *
+            1024}, you requested ${options.sendBufferSize}`
+          )
+        );
       }
       handle.setOpt(Curl.option.UPLOAD_BUFFERSIZE, options.sendBufferSize);
     }
 
-    const id = v4();
-
     addRequestCommonOptions(handle, options);
-    addRequestHandlers(handle, options);
-    addRequestCompression(handle, options);
-    addRequestHeaders(handle, options);
+    addResponseEntityHandler(handle, parts);
+    addDebugHandler(handle, parts);
     setRequestMethod(handle, options);
-    addRequestEntity(handle, options, flatPromise, responseEntity, id);
+    addRequestEntity(handle, options, flatPromise);
+    addRequestHeaders(handle, options);
 
     // register and execute the request handle
-    this.registerHandle(handle, options);
+    this.registerHandle(handle, parts);
 
     return flatPromise.promise;
   }
 
-  private registerHandle(handle: Easy, options: ExecuteOptions) {
-
-    if (options.entity instanceof Readable) {
+  private registerHandle(handle: Easy, parts: RequestParts) {
+    if (parts.options.requestEntity instanceof Readable) {
       // if there is a Readable request entity, we need to wait until it's readable
-      options.entity.once("readable", () => {
+      parts.options.requestEntity.once("readable", () => {
         // request entity is now readable, setup the handle
+        parts.start = Date.now();
         this.multi.addHandle(handle);
       });
-
     } else {
       // add the handle immediately
+      parts.start = Date.now();
       this.multi.addHandle(handle);
     }
   }
 
   private onMessage(err: Error | undefined, handle: Easy, errCode: CurlCode): void {
-    const [flatPromise, responseEntity] = this.getHandleParts(handle);
+
+    // this is our best approximation for the point in time at which the request finished
+    const now = Date.now();
+
+    const parts = this.getHandleParts(handle);
+    const { flatPromise, options } = parts;
+
+    if (options.responseEntity) {
+      options.responseEntity.end();
+    }
 
     // node Error
     if (err) {
@@ -132,25 +183,43 @@ export class CurlClient {
     // close the Easy handle
     handle.close();
 
-    return flatPromise.resolve({ status, entity: responseEntity });
+    const [httpVersion, headers] = parseResponseHeaders(parts.receivedHeaders);
+
+    return flatPromise.resolve({
+      status,
+      headers,
+      httpVersion,
+      end: now,
+      infos: parts.infos,
+      start: parts.start || 0,
+      entityBytesReceived: parts.entityBytesReceived,
+      entityContentType: parts.entityContentType,
+      entityEncoding: parts.entityEncoding,
+    });
   }
 
-  private getHandleParts(handle: Easy): [FlatPromise<ExecuteResult>, Duplex] {
+  private getHandleParts(handle: Easy): RequestParts {
     const idx = this.handles.indexOf(handle);
     if (idx === -1) {
       throw new Error(`failed to find index for handle`);
     }
-    return [this.flatPromises[idx], this.responseEntities[idx]];
+    return this.parts[idx];
   }
 
-  private createHandle(): [Easy, FlatPromise<ExecuteResult>, Duplex] {
+  private createHandle(options: ExecuteOptions): [Easy, RequestParts] {
     const flatPromise = createFlatPromise<ExecuteResult>();
     const handle = new Easy();
     this.handles.push(handle);
-    this.flatPromises.push(flatPromise);
-    const responseEntity = new Duplex();
-    this.responseEntities.push();
-    return [handle, flatPromise, responseEntity];
+    const parts: RequestParts = {
+      flatPromise,
+      options,
+      receivedHeaders: [],
+      infos: [],
+      entityBytesReceived: 0,
+      entityEncoding: "identity",
+    };
+    this.parts.push(parts);
+    return [handle, parts];
   }
 
   public close() {
@@ -165,79 +234,106 @@ const addRequestCommonOptions = (handle: Easy, options: ExecuteOptions): void =>
   handle.setOpt(Curl.option.VERBOSE, 1);
 };
 
-const bufs: Buffer[] = [];
-import fs from "fs";
+const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
 
-const addRequestHandlers = (handle: Easy, options: ExecuteOptions): void => {
+  const { options } = parts;
 
-  handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => {
+  if (options.responseEntity) {
+    const responseStream = options.responseEntity;
 
-    log.error(`got data len=${data.length} [${data.toString("utf8")}]`);
+    const writeState = { wantsPause: false };
 
-    bufs.push(Buffer.from(data));
+    // when pausing/unpausing, curl calls this function with previous buffer when it resumes
+    // so to integrate nicely with nodejs streams where you have to already write the data before finding out
+    // if backpressure is triggered, we need to track some state and bail out if the stream wants us to pause
+    handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => {
 
-    const allBufs = Buffer.concat(bufs);
-    console.log(`all bufs [${allBufs.toString("utf8")}]`);
+      // the last stream write wanted backpressure, inform libcurl to back off
+      if (writeState.wantsPause) {
+        return CurlWriteFunc.Pause;
+      }
 
+      const readyForMore = responseStream.write(data);
 
+      parts.entityBytesReceived += data.length;
 
-    fs.writeFileSync("/Users/asherwin/Desktop/out.gz", allBufs);
+      // stream wants backpressure
+      if (!readyForMore) {
+        // track some state so we can inform libcurl on the next go-around
+        writeState.wantsPause = true;
 
-    // return size * nmemb;
-    return data.length;
-  });
+        // wait for the next drain event so we can unpause libcurl
+        responseStream.once("drain", () => {
+          // once the stream has drained, track state such that we don't want to pause anymore
+          writeState.wantsPause = false;
+          // unpause libcurl receive stream
+          handle.pause(CurlPause.RecvCont);
+        });
+      }
+
+      // A-OK, continue as normal
+      return data.length;
+    });
+  } else {
+
+    if (options.method !== "OPTIONS" && options.method !== "HEAD") {
+      // this might otherwise have a response entity but since we don't need to stream the result anywhere, screw it
+      handle.setOpt(Curl.option.NOBODY, 1);
+    }
+
+  }
+
+}
+
+const CONTENT_TYPE_HEADER_REGEX = /content-type: *(.*)/i;
+const CONTENT_ENCODING_HEADER_REGEX = /content-encoding: *(.*)/i;
+
+const processHeaderForTracking = (header: string, parts: RequestParts): void => {
+  parts.receivedHeaders.push(header);
+
+  let matches = CONTENT_TYPE_HEADER_REGEX.exec(header);
+  if (matches) {
+    // this is the content type header, extract the content type
+    parts.entityContentType = matches[1].trim();
+  }
+
+  matches = CONTENT_ENCODING_HEADER_REGEX.exec(header);
+  if (matches) {
+    // this is the content type header, extract the content type
+    parts.entityEncoding = matches[1].trim();
+  }
+};
+
+const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
+
+  const { infos } = parts;
 
   handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
     const now = Date.now();
     switch (infoType) {
       case CurlInfoDebug.Text:
-        if (options.onInfo) {
-          options.onInfo(now, content.toString().trim());
-        }
-        break;
-      case CurlInfoDebug.HeaderOut:
-        if (options.onHeaderSent) {
-          if (content.length === 2 && LAST_HEADER.equals(content)) {
-            // last header, do nothing
-          } else {
-            bufToHeaderLines(content).forEach((header) => options.onHeaderSent!(now, header));
-          }
-        }
+        infos.push({ at: now, message: content.toString().trim() });
         break;
       case CurlInfoDebug.HeaderIn:
-        if (options.onHeaderReceived) {
-          if (content.length === 2 && LAST_HEADER.equals(content)) {
-            // last header, do nothing
-          } else {
-            bufToHeaderLines(content).forEach((header) => options.onHeaderReceived!(now, header));
-          }
-        }
-        break;
-      case CurlInfoDebug.DataOut:
-        if (options.onDataSent) {
-          options.onDataSent(now, content);
-        }
-        break;
-      case CurlInfoDebug.DataIn:
-        if (options.onDataReceived) {
-          options.onDataReceived(now, content);
+        if (content.length === 2 && LAST_HEADER.equals(content)) {
+          // last header, do nothing
+        } else {
+          bufToHeaderLines(content).forEach(header => processHeaderForTracking(header, parts));
         }
         break;
     }
 
     // this must return CURLE_OK, the TypeScript type sig is wrong (says void)
-    // TODO: submit a fix to node-libcurl
+    // TODO: update to a newer libcurl once is https://github.com/JCMais/node-libcurl/pull/202 in a stable build
     // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
     return CurlCode.CURLE_OK;
   });
 };
 
 const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
-
   if (options.method === "POST") {
     handle.setOpt(Curl.option.POST, 1);
   }
-
 };
 
 interface RequestStreamHolder {
@@ -249,13 +345,12 @@ interface RequestStreamHolder {
   error?: Error;
 }
 
-const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>, responseEntity: Duplex, id: string): void => {
-
-  if (options.entity instanceof Buffer) {
+const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
+  if (options.requestEntity instanceof Buffer) {
     // when request entity is a Buffer
 
     let offset = 0;
-    const entityBuf = options.entity;
+    const entityBuf = options.requestEntity;
 
     handle.setOpt(Curl.option.POSTFIELDSIZE, entityBuf.length);
 
@@ -266,11 +361,10 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       offset += bytesCopied;
       return bytesCopied;
     });
-
-  } else if (options.entity instanceof Readable) {
+  } else if (options.requestEntity instanceof Readable) {
     // when request entity is a Readable stream
 
-    const entityStream = options.entity;
+    const entityStream = options.requestEntity;
 
     // setup a holder who is captured by the READFUNCTION lambda scope
 
@@ -279,7 +373,7 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       bufBytesRead: 0,
       offset: 0,
       libcurlPaused: false,
-      done: false,
+      done: false
     };
 
     // watch the read stream...
@@ -288,18 +382,18 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       holder.done = true;
       if (holder.libcurlPaused) {
         holder.libcurlPaused = false;
-        handle.pause(CurlPause.Cont);
+        handle.pause(CurlPause.SendCont);
       }
     };
 
     entityStream.once("close", whenDone);
     entityStream.once("end", whenDone);
-    entityStream.once("error", (e) => {
+    entityStream.once("error", e => {
       // the READFUNCTION will abort libcurl + Promise.reject when it sees this
       holder.error = e;
       if (holder.libcurlPaused) {
         holder.libcurlPaused = false;
-        handle.pause(CurlPause.Cont);
+        handle.pause(CurlPause.SendCont);
       }
     });
     entityStream.on("data", (buf: Buffer) => {
@@ -312,13 +406,12 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       // if the Easy handle is paused, continue it to re-invoke the READFUNCTION
       if (holder.libcurlPaused) {
         holder.libcurlPaused = false;
-        handle.pause(CurlPause.Cont);
+        handle.pause(CurlPause.SendCont);
       }
     });
 
     // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
     handle.setOpt(Curl.option.READFUNCTION, (libcurlBuffer, size, nitems) => {
-
       if (holder.error) {
         flatPromise.reject(holder.error);
         return CurlReadFunc.Abort;
@@ -339,7 +432,12 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       let maxBytesToRead = size * nitems;
       maxBytesToRead = holder.buf.length < maxBytesToRead ? holder.buf.length : maxBytesToRead;
 
-      const bytesCopied = holder.buf.copy(libcurlBuffer, 0, holder.offset, maxBytesToRead + holder.offset);
+      const bytesCopied = holder.buf.copy(
+        libcurlBuffer,
+        0,
+        holder.offset,
+        maxBytesToRead + holder.offset
+      );
 
       holder.bufBytesRead += bytesCopied;
 
@@ -355,22 +453,12 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
       // if we copied no bytes, go to pause mode...
       // we should have more bytes because we aren't logically done streaming
       return bytesCopied === 0 ? CurlReadFunc.Pause : bytesCopied;
-
     });
 
-    entityStream.on("error", (e) => {
+    entityStream.on("error", e => {
       log.error(`stream error: ${e.message}`);
       flatPromise.reject(e);
     });
-
-  }
-};
-
-const addRequestCompression = (handle: Easy, options: ExecuteOptions): void => {
-  // handle. setOpt(Curl.option.ACCEPT_ENCODING, null); // explicitly disable automatic decompression
-  if (options.compression) {
-    // enables automatic Accept-Encoding request header + de-compression of results when using empty string ""
-    handle.setOpt(Curl.option.ACCEPT_ENCODING, "");
   }
 };
 
@@ -381,7 +469,7 @@ const addRequestHeaders = (handle: Easy, options: ExecuteOptions): void => {
   // if we're sending an entity and it's a Readable we need to ensure a chunked transfer encoding
   const safeHeaders: Headers = { ...options.headers };
 
-  if (options.entity instanceof Readable) {
+  if (options.requestEntity instanceof Readable) {
     safeHeaders["Transfer-Encoding"] = "chunked";
   }
 
@@ -395,19 +483,63 @@ const bufToHeaderLines = (headers: Buffer): string[] => {
   if (str.indexOf("\n") !== -1) {
     // multiple headers
     const rawSplit = str.split("\n");
-    return rawSplit.map((it) => _trimEnd(it, "\r\n")).filter((it) => it.length > 0);
+    return rawSplit.map(it => _trimEnd(it, "\r\n")).filter(it => it.length > 0);
   }
   // single header
-  return [str].filter((it) => it.length > 0);
+  return [str].filter(it => it.length > 0);
 };
 
 const headerMapToStrings = (headers: Headers): string[] => {
   const strings: string[] = [];
   for (const headerName in headers) {
     const headerValue = headers[headerName];
-    strings.push(`${headerName}: ${headerValue}`);
+    if (typeof headerValue === "string") {
+      strings.push(`${headerName}: ${headerValue}`);
+    } else {
+      // array, push for each
+      for (const currentHeaderValue of headerValue) {
+        strings.push(`${headerName}: ${currentHeaderValue}`);
+      }
+    }
   }
   return strings;
+};
+
+const HTTP_REGEX = /http\/1\.([0-1])/i;
+
+/**
+ * Parses the response header strings
+ * 
+ * @param headerStrings Tuple of [HTTP_VERSION, HEADERS]
+ */
+const parseResponseHeaders = (headerStrings: string[]): [string, Headers] => {
+  const headers: Headers = {};
+  let httpVersion = "";
+  for (const headerString of headerStrings) {
+    const splitterIndex = headerString.indexOf(":");
+
+    if (splitterIndex === -1) {
+      // probably the HTTP version + status code line
+      const matches = HTTP_REGEX.exec(headerString);
+      if (matches) {
+        httpVersion = `1.${matches[1]}`;
+      }
+
+    } else {
+      // regular header
+      const name = headerString.substr(0, splitterIndex);
+      const value = headerString.substr(splitterIndex + 1).trimLeft();
+      if (typeof headers[name] === "undefined") {
+        headers[name] = value;
+      } else if (typeof headers[name] === "string") {
+        // convert from string -> string[]
+        headers[name] = [headers[name] as string, value];
+      } else if (Array.isArray(headers[name])) {
+        (headers[name] as string[]).push(value);
+      }
+    }
+  }
+  return [httpVersion, headers];
 };
 
 const getErrorForCurlCode = (code: CurlCode): Error => {

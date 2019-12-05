@@ -18,18 +18,20 @@ const run = async () => {
     log.debug(`before all requests`);
 
     // const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf");
-    const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/solar.xlsx");
+    // const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/sprinklers.jpg");
+
+    const responseEntity = fs.createWriteStream("/Users/asherwin/Desktop/out", {
+      highWaterMark: 128 * 1024,
+    });
 
     const promises: Promise<ExecuteResult>[] = [];
     for (let i = 0; i < 1; i++) {
-
       // const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
       //   highWaterMark: 1024 * 128,
       // });
-      // const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/solar.xlsx", {
-      //   highWaterMark: 1024 * 128,
-      // });
-
+      const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/sprinklers.jpg", {
+        highWaterMark: 1024 * 128,
+      });
 
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = (5 * 1024 + 1).toString();
@@ -39,13 +41,17 @@ const run = async () => {
         method: "POST",
         url: `http://localhost:9990/post`,
         headers: {
-          [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
-          [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
+          [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_ECHO,
+          // [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
+          // "Accept-Encoding": "gzip, deflate",
           "X-TEST": "abc ",
           "X-TEST-2": "abc  ",
+          "Content-Type": "image/jpg",
         },
-        entity: requestEntity,
-        sendBufferSize: (128 * 1024) + 16,
+        requestEntity,
+        sendBufferSize: 128 * 1024 + 16,
+        responseEntity,
+        receiveBufferSize: 128 * 1024,
         // bufferSize: 1024,
         // onInfo: (epoch, message) => {
         //   log.debug(`info: ${message}`);
@@ -59,9 +65,9 @@ const run = async () => {
         // onDataSent: (epoch, data) => {
         //   log.warn(`data >> ${data.length} bytes`);
         // },
-        onDataReceived: (epoch, data) => {
-          // log.warn(`data << ${data.length} bytes`);
-        },
+        // onDataReceived: (epoch, data) => {
+        //   // log.warn(`data << ${data.length} bytes`);
+        // },
       });
       promises.push(p);
       // log.debug(`after request`);
@@ -70,6 +76,9 @@ const run = async () => {
     await Promise.all(promises);
 
     log.debug(`after all`);
+
+    const result = await promises[0];
+    console.log(JSON.stringify(result, null, 2));
   } catch (e) {
     console.log(e.message, e);
   } finally {

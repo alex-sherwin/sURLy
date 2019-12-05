@@ -25,7 +25,7 @@ export const startWebserver = (port: number): Promise<http.Server> => {
       filter: (req, res) => {
         const acceptEncoding = req.header("accept-encoding");
         if (acceptEncoding && acceptEncoding.includes("gzip")) {
-          log.warn("use compression");
+          // log.warn("use compression");
           return true;
         }
         log.warn("no compression");
@@ -42,6 +42,19 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
 
       log.silly(`starting to handle web request`);
+
+      for (const headerName in req.headers) {
+        const value = req.headers[headerName];
+        if (Array.isArray(value)) {
+          for (const itrValue of value) {
+            log.warn(`<< [${headerName}: ${itrValue}]`);
+          }
+        } else {
+          log.warn(`<< [${headerName}: ${value}]`);
+        }
+        
+      }
+
 
       // maybe bail w/ error
       const responseType = req.headers[Headers.X_RESPONSE_TYPE];
@@ -67,17 +80,19 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
           if (responseType === "echo") {
             responseBuf = reqBuf;
+            res.setHeader("Content-Type", req.header("content-type") || "application/octet-stream");
           } else {
+            res.setHeader("Content-Type", "application/octet-stream");
             responseBuf = getRandomResponseBytes(req);
           }
 
           res.statusCode = getResponseStatusCode(req);
 
-          responseBuf = Buffer.from("hello world");
+          // responseBuf = Buffer.from("hello world");
+          // res.setHeader("Content-Type", "text/plain");
 
-          res.setHeader("Content-Type", "text/plain");
-
-          log.debug(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length} [${responseBuf.toString("utf8")}]`);
+          // log.silly(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
+          
           return res.end(responseBuf);
         });
 
