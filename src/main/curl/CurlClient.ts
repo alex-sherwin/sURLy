@@ -65,6 +65,7 @@ export class CurlClient {
     } else {
       // add the handle immediately
       parts.start = Date.now();
+      log.debug("adding curl handle");
       this.multi.addHandle(handle);
     }
   }
@@ -232,10 +233,12 @@ const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
     });
   } else {
 
-    if (options.method !== "OPTIONS" && options.method !== "HEAD") {
-      // this might otherwise have a response entity but since we don't need to stream the result anywhere, screw it
-      handle.setOpt(Curl.option.NOBODY, 1);
-    }
+    // fastest way is to just discard the WRITEFUNCTION results
+    // attempts to use Curl.option.NOBODY work but have unexplainable delays before the onMessage hook is called
+
+    handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => {
+      return data.length;
+    });
 
   }
 
