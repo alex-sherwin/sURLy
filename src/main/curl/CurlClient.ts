@@ -9,7 +9,7 @@ import { log } from "../../shared/log";
 
 // really local
 import { ClientOptions, ExecuteOptions, ExecuteResult, HttpHeaders } from "./PublicTypes";
-import { RequestParts, RequestStreamHolder } from "./PrivateTypes";
+import { RequestParts, RequestStreamState } from "./PrivateTypes";
 import { parseResponseHeaders, bufToHeaderLines, headerMapToStrings } from "./Headers";
 
 export class CurlClient {
@@ -348,7 +348,7 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
 
     // setup a holder who is captured by the READFUNCTION lambda scope
 
-    const holder: RequestStreamHolder = {
+    const streamState: RequestStreamState = {
       buf: null,
       bufBytesRead: 0,
       offset: 0,
@@ -358,10 +358,11 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
 
     // watch the read stream...
 
+    // when the stream is closed/ended ensure that if libcurl is still paused that it is resumed
     const whenDone = () => {
-      holder.done = true;
-      if (holder.libcurlPaused) {
-        holder.libcurlPaused = false;
+      streamState.done = true;
+      if (streamState.libcurlPaused) {
+        streamState.libcurlPaused = false;
         handle.pause(CurlPause.SendCont);
       }
     };
@@ -370,64 +371,72 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
     entityStream.once("end", whenDone);
     entityStream.once("error", e => {
       // the READFUNCTION will abort libcurl + Promise.reject when it sees this
-      holder.error = e;
-      if (holder.libcurlPaused) {
-        holder.libcurlPaused = false;
+      streamState.error = e;
+      // make sure to unpause libcurl if it's paused
+      if (streamState.libcurlPaused) {
+        streamState.libcurlPaused = false;
         handle.pause(CurlPause.SendCont);
       }
     });
     entityStream.on("data", (buf: Buffer) => {
-      // pause the stream until the READFUNCTION fully reads the current buffer
+      // pause the stream until the libcurl READFUNCTION fully reads the current buffer
+      // necessary because the libcurl READFUNCTION may not read this whole Buffer in one round
       entityStream.pause();
       // reset the current buffer, offset and how many bytes have been read from the current buffer
-      holder.offset = 0;
-      holder.buf = buf;
-      holder.bufBytesRead = 0;
+      streamState.offset = 0;
+      streamState.buf = buf;
+      streamState.bufBytesRead = 0;
       // if the Easy handle is paused, continue it to re-invoke the READFUNCTION
-      if (holder.libcurlPaused) {
-        holder.libcurlPaused = false;
+      if (streamState.libcurlPaused) {
+        streamState.libcurlPaused = false;
         handle.pause(CurlPause.SendCont);
       }
     });
 
     // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
     handle.setOpt(Curl.option.READFUNCTION, (libcurlBuffer, size, nitems) => {
-      if (holder.error) {
-        flatPromise.reject(holder.error);
+
+      // error on the stream, abort the READFUNCTION and reject the Promise
+      if (streamState.error) {
+        flatPromise.reject(streamState.error);
         return CurlReadFunc.Abort;
       }
 
-      if (holder.done && holder.buf === null) {
-        // holder.done might be true before last buf is read due to native lib interaction
+      // maybe we're done...
+      if (streamState.done && streamState.buf === null) {
+        // holder.done might be true before last buf is read due to native libcurl READFUNCTION interaction
         // so, only be done with READFUNCTION is holder.buf is null
         return 0;
       }
 
-      if (holder.buf === null) {
-        // need to pause and wait for data
-        holder.libcurlPaused = true;
+      if (streamState.buf === null) {
+        // no buffer to read from, need to pause libcurl and wait for data from the stream
+        streamState.libcurlPaused = true;
         return CurlReadFunc.Pause;
       }
 
-      let maxBytesToRead = size * nitems;
-      maxBytesToRead = holder.buf.length < maxBytesToRead ? holder.buf.length : maxBytesToRead;
+      // figure out how many bytes we can copy from the stream Buffer to the READFUNCTION buffer
+      let maxBytesToRead = size * nitems; // this is the max size libcurl will allow us to put into the READFUNCTION buffer
+      maxBytesToRead = streamState.buf.length < maxBytesToRead ? streamState.buf.length : maxBytesToRead; // stream Buffer might be smaller
 
-      const bytesCopied = holder.buf.copy(
+      // copy bytes from the current stream Buffer into the libcurl READFUNCTION buffer
+      // we need to use a stateful offset because READFUNCTION might take multiple rounds to read the complete stream Buffer
+      const bytesCopied = streamState.buf.copy(
         libcurlBuffer,
         0,
-        holder.offset,
-        maxBytesToRead + holder.offset
+        streamState.offset,
+        maxBytesToRead + streamState.offset
       );
 
-      holder.bufBytesRead += bytesCopied;
+      streamState.bufBytesRead += bytesCopied;
 
-      if (holder.bufBytesRead === holder.buf.length) {
-        // read whole buffer, reset tracking and resume the stream
-        holder.buf = null;
+      if (streamState.bufBytesRead === streamState.buf.length) {
+        // read whole buffer, reset stream state and resume the stream
+        streamState.buf = null;
         entityStream.resume();
       } else {
-        // did not read the whole stream, track the offset
-        holder.offset += bytesCopied;
+        // did not read the whole stream, track the offset in the stream state
+        streamState.offset += bytesCopied;
       }
 
       // if we copied no bytes, go to pause mode...

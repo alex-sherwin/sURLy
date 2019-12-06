@@ -17,7 +17,7 @@ export interface RequestParts {
   entityEncoding: "identity" | "gzip" | "compress" | "deflate" | "br" | string;
 }
 
-export interface RequestStreamHolder {
+export interface RequestStreamState {
   buf: Buffer | null;
   offset: number;
   bufBytesRead: number;
