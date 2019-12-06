@@ -283,16 +283,25 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
         break;
     }
 
-    // this must return CURLE_OK, the TypeScript type sig is wrong (says void)
+    // this must return 0, the TypeScript type sig is wrong (says void)
     // TODO: update to a newer libcurl once is https://github.com/JCMais/node-libcurl/pull/202 in a stable build
     // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
-    return CurlCode.CURLE_OK;
+    return 0;
   });
 };
 
 const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
   if (options.method === "POST") {
     handle.setOpt(Curl.option.POST, 1);
+  } else if (options.method === "PUT") {
+    handle.setOpt(Curl.option.PUT, 1);
+  } else if (options.method === "GET") {
+    handle.setOpt(Curl.option.HTTPGET, 1);
+  } else {
+    handle.setOpt(Curl.option.CUSTOMREQUEST, options.method);
+  }
+  if (options.requestEntity !== undefined && options.method !== "POST" && options.method !== "PUT") {
+    handle.setOpt(Curl.option.UPLOAD, 1);
   }
 };
 
@@ -302,6 +311,13 @@ const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: Fl
     // tslint:disable-next-line:no-else-after-return
   } else if (options.requestEntity instanceof Readable) {
     return addRequestStreamEntity(handle, options, flatPromise);
+  } else {
+    // no request entity
+    if (options.method === "POST" || options.method === "PUT") {
+      handle.setOpt(Curl.option.READFUNCTION, (data, size, nitems) => {
+        return 0;
+      });
+    }
   }
 };
 

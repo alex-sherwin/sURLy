@@ -17,8 +17,7 @@ const run = async () => {
   try {
     log.debug(`before all requests`);
 
-    // const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf");
-    // const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/sprinklers.jpg");
+    const requestEntity = fs.readFileSync("/Users/asherwin/Desktop/sprinklers.jpg");
 
     const responseEntity = fs.createWriteStream("/Users/asherwin/Desktop/out", {
       highWaterMark: 128 * 1024,
@@ -26,19 +25,13 @@ const run = async () => {
 
     const promises: Promise<ExecuteResult>[] = [];
     for (let i = 0; i < 1; i++) {
-      // const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/343 E Brown St. Floor Plans.pdf", {
-      //   highWaterMark: 1024 * 128,
-      // });
-      const requestEntity = fs.createReadStream("/Users/asherwin/Desktop/sprinklers.jpg", {
-        highWaterMark: 1024 * 128,
-      });
 
       const respLen = _round(Math.random() * 1025, 0).toString();
       // const respLen = (5 * 1024 + 1).toString();
       // const respLen = "10";
       log.debug(`before request (resp len=${respLen})`);
       const p = client.execute({
-        method: "POST",
+        method: "GET",
         url: `http://localhost:9990/post`,
         headers: {
           [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_ECHO,
@@ -52,22 +45,6 @@ const run = async () => {
         sendBufferSize: 128 * 1024 + 16,
         responseEntity,
         receiveBufferSize: 128 * 1024,
-        // bufferSize: 1024,
-        // onInfo: (epoch, message) => {
-        //   log.debug(`info: ${message}`);
-        // },
-        // onHeaderSent: (epoch, header) => {
-        //   log.warn(`header >> ${header}`);
-        // },
-        // onHeaderReceived: (epoch, header) => {
-        //   log.warn(`header << ${header}`);
-        // },
-        // onDataSent: (epoch, data) => {
-        //   log.warn(`data >> ${data.length} bytes`);
-        // },
-        // onDataReceived: (epoch, data) => {
-        //   // log.warn(`data << ${data.length} bytes`);
-        // },
       });
       promises.push(p);
       // log.debug(`after request`);
