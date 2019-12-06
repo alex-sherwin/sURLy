@@ -85,13 +85,15 @@ export class CurlClient {
     // node Error
     if (err) {
       this.safeCleanupHandle(handle);
-      return flatPromise.reject(err);
+      setImmediate(() => flatPromise.reject(err));
+      return;
     }
 
     // libcurl error code (not http status code!)
     if (errCode !== CurlCode.CURLE_OK) {
       this.safeCleanupHandle(handle);
-      return flatPromise.reject(getErrorForCurlCode(errCode));
+      setImmediate(() => flatPromise.reject(getErrorForCurlCode(errCode)));
+      return;
     }
 
     // we know since it's CurlCode.CURLE_OK that this will be a HTTP status code as a number
@@ -106,17 +108,24 @@ export class CurlClient {
 
     this.safeCleanupHandle(handle);
 
-    return flatPromise.resolve({
-      status,
-      headers,
-      httpVersion,
-      end: now,
-      infos: parts.infos,
-      start: parts.start || 0,
-      entityBytesReceived: parts.entityBytesReceived,
-      entityContentType: parts.entityContentType,
-      entityEncoding: parts.entityEncoding,
+    // calling our FlatPromise.resolve doesn't setup the event loop MicroTask
+    // like a native Promise would, so to ensure the listener of the FlatPromise
+    // runs as-close-to-immediately-as-possible we need a setImmediate to get onto
+    // the next event loop run without letting libuv sleep to the OS
+    setImmediate(() => {
+      flatPromise.resolve({
+        status,
+        headers,
+        httpVersion,
+        end: now,
+        infos: parts.infos,
+        start: parts.start || 0,
+        entityBytesReceived: parts.entityBytesReceived,
+        entityContentType: parts.entityContentType,
+        entityEncoding: parts.entityEncoding,
+      });
     });
+
   }
 
   private getHandleParts(handle: Easy): RequestParts {
@@ -401,7 +410,8 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
 
       // error on the stream, abort the READFUNCTION and reject the Promise
       if (streamState.error) {
-        flatPromise.reject(streamState.error);
+        const scopedError = streamState.error;
+        setImmediate(() => flatPromise.reject(scopedError));
         return CurlReadFunc.Abort;
       }
 
@@ -449,7 +459,7 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
 
     entityStream.on("error", e => {
       log.error(`stream error: ${e.message}`);
-      flatPromise.reject(e);
+      setImmediate(() => flatPromise.reject(e));
     });
   }
 };
