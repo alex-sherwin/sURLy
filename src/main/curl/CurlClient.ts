@@ -5,7 +5,7 @@ import _trimEnd from "lodash/trimEnd";
 
 // local
 import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
-import { log } from "../../shared/log";
+import { log } from "../log";
 
 // really local
 import { ClientOptions, ExecuteOptions, ExecuteResult, HttpHeaders } from "./PublicTypes";

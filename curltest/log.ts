@@ -1,1 +1,1 @@
-export * from "../src/shared/log";
+export * from "../src/main/log";
