@@ -1,16 +1,15 @@
 // local
-import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
+import { FlatPromise } from "../../shared/FlatPromise";
 
 // really local
-import { ExecuteResult, ExecuteOptions, Info } from "./PublicTypes";
+import { ExecuteResult, ExecuteOptions, Info, ExecuteTiming } from "./PublicTypes";
 
 export interface RequestParts {
   flatPromise: FlatPromise<ExecuteResult>;
   options: ExecuteOptions;
   receivedHeaders: string[];
   infos: Info[];
-  start?: number;
-  end?: number;
+  timing: Partial<ExecuteTiming>;
   httpVersion?: string;
   entityBytesReceived: number;
   entityContentType?: string;

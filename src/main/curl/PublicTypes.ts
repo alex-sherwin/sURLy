@@ -29,18 +29,46 @@ export interface ExecuteOptions {
 }
 
 export interface Info {
-  at: number;
+  epoch: number;
   message: string;
+}
+
+export interface ExecuteTiming {
+
+  startEpoch: number;
+  startNano: number;
+  endEpoch: number;
+  endNano: number;
+
+  // request parts
+  firstRequestHeaderEpoch: number;
+  firstRequestHeaderNano: number;
+  lastRequestHeaderEpoch: number;
+  lastRequestHeaderNano: number;
+  startRequestEntityEpoch: number;
+  startRequestEntityNano: number;
+  endRequestEntityEpoch: number;
+  endRequestEntityNano: number;
+
+  // response parts
+  firstResponseHeaderEpoch: number;
+  firstResponseHeaderNano: number;
+  lastResponseHeaderEpoch: number;
+  lastResponseHeaderNano: number;
+  startResponseEntityEpoch: number;
+  startResponseEntityNano: number;
+  endResponseEntityEpoch: number;
+  endResponseEntityNano: number;
+
 }
 
 export interface ExecuteResult {
   status: number;
   headers: HttpHeaders;
   infos: Info[];
-  start: number;
-  end: number;
   httpVersion: string;
   entityBytesReceived: number;
   entityContentType?: string;
   entityEncoding: "identity" | "gzip" | "compress" | "deflate" | "br" | string;
+  timing: ExecuteTiming;
 }

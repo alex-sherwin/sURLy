@@ -20,18 +20,18 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
     const app = express();
 
-    app.use(compression({
-      threshold: 5,
-      filter: (req, res) => {
-        const acceptEncoding = req.header("accept-encoding");
-        if (acceptEncoding && acceptEncoding.includes("gzip")) {
-          // log.warn("use compression");
-          return true;
-        }
-        log.warn("no compression");
-        return false;
-      }
-    }));
+    // app.use(compression({
+    //   threshold: 5,
+    //   filter: (req, res) => {
+    //     const acceptEncoding = req.header("accept-encoding");
+    //     if (acceptEncoding && acceptEncoding.includes("gzip")) {
+    //       // log.warn("use compression");
+    //       return true;
+    //     }
+    //     // log.warn("no compression");
+    //     return false;
+    //   }
+    // }));
 
     const router = express.Router();
 
@@ -40,19 +40,18 @@ export const startWebserver = (port: number): Promise<http.Server> => {
       // res.write("hello world");
       // res.end();
 
-      log.warn(`starting to handle ${req.method} web request`);
+      log.debug(`starting to handle ${req.method} web request`);
 
-      for (const headerName in req.headers) {
-        const value = req.headers[headerName];
-        if (Array.isArray(value)) {
-          for (const itrValue of value) {
-            log.warn(`<< [${headerName}: ${itrValue}]`);
-          }
-        } else {
-          log.warn(`<< [${headerName}: ${value}]`);
-        }
-
-      }
+      // for (const headerName in req.headers) {
+      //   const value = req.headers[headerName];
+      //   if (Array.isArray(value)) {
+      //     for (const itrValue of value) {
+      //       log.silly(`<< [${headerName}: ${itrValue}]`);
+      //     }
+      //   } else {
+      //     log.silly(`<< [${headerName}: ${value}]`);
+      //   }
+      // }
 
       // maybe bail w/ error
       const responseType = req.headers[Headers.X_RESPONSE_TYPE];
@@ -76,7 +75,7 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
           const reqBuf = Buffer.concat(bufs);
 
-          log.warn(`server received entity len=${reqBuf.length}`);
+          log.silly(`server received entity len=${reqBuf.length}`);
 
           if (responseType === "echo") {
             responseBuf = reqBuf;
@@ -88,7 +87,7 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
           res.statusCode = getResponseStatusCode(req);
 
-          log.warn(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
+          log.debug(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
 
           return res.end(responseBuf);
         });
@@ -140,8 +139,11 @@ const getMaxRandomResponseBytes = (req: http.IncomingMessage): number => {
   return DEFAULT_MAX_RESPONSE_RANDOM_BYTES;
 };
 
+const HELLO_WORLD = Buffer.from("hello world");
+
 const getRandomResponseBytes = (req: http.IncomingMessage): Buffer => {
-  return crypto.randomBytes(getMaxRandomResponseBytes(req));
+  return HELLO_WORLD;
+  // return crypto.randomBytes(getMaxRandomResponseBytes(req));
 };
 
 const getResponseStatusCode = (req: http.IncomingMessage): number => {

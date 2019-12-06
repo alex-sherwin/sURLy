@@ -20,6 +20,7 @@
     "dist": "npm run build && electron-builder",
     "dist-multi": "npm run build && electron-builder -mwl",
     "tsc": "tsc",
+    "tsc-watch": "tsc --watch",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {

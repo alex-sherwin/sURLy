@@ -45,7 +45,7 @@ export class CurlClient {
     addResponseEntityHandler(handle, parts);
     addDebugHandler(handle, parts);
     setRequestMethod(handle, options);
-    addRequestEntity(handle, options, flatPromise);
+    addRequestEntity(handle, parts);
     addRequestHeaders(handle, options);
 
     // register and execute the libcurl Easy handle
@@ -59,13 +59,14 @@ export class CurlClient {
       // if there is a Readable request entity, we need to wait until it's readable
       parts.options.requestEntity.once("readable", () => {
         // request entity is now readable, setup the handle
-        parts.start = Date.now();
+        // parts.timing.startNano = Number(process.hrtime.bigint());
+        // parts.timing.startEpoch = Date.now();
         this.multi.addHandle(handle);
       });
     } else {
       // add the handle immediately
-      parts.start = Date.now();
-      log.debug("adding curl handle");
+      // parts.timing.startNano = Number(process.hrtime.bigint());
+      // parts.timing.startEpoch = Date.now();
       this.multi.addHandle(handle);
     }
   }
@@ -73,7 +74,8 @@ export class CurlClient {
   private onMessage(err: Error | undefined, handle: Easy, errCode: CurlCode): void {
 
     // this is our best approximation for the point in time at which the request finished
-    const now = Date.now();
+    const nowNano = Number(process.hrtime.bigint());
+    const nowEpoch = Date.now();
 
     const parts = this.getHandleParts(handle);
     const { flatPromise, options } = parts;
@@ -112,19 +114,39 @@ export class CurlClient {
     // like a native Promise would, so to ensure the listener of the FlatPromise
     // runs as-close-to-immediately-as-possible we need a setImmediate to get onto
     // the next event loop run without letting libuv sleep to the OS
-    setImmediate(() => {
+    // setImmediate(() => {
       flatPromise.resolve({
         status,
         headers,
         httpVersion,
-        end: now,
+        timing: {
+          startEpoch: parts.timing.startEpoch ?? 0,
+          startNano: parts.timing.startNano ?? 0,
+          endEpoch: nowEpoch,
+          endNano: nowNano,
+          firstRequestHeaderEpoch: parts.timing.firstRequestHeaderEpoch ?? 0,
+          firstRequestHeaderNano: parts.timing.firstRequestHeaderNano ?? 0,
+          lastRequestHeaderEpoch: parts.timing.lastRequestHeaderEpoch ?? 0,
+          lastRequestHeaderNano: parts.timing.lastRequestHeaderNano ?? 0,
+          firstResponseHeaderEpoch: parts.timing.firstResponseHeaderEpoch ?? 0,
+          firstResponseHeaderNano: parts.timing.firstResponseHeaderNano ?? 0,
+          lastResponseHeaderEpoch: parts.timing.lastResponseHeaderEpoch ?? 0,
+          lastResponseHeaderNano: parts.timing.lastResponseHeaderNano ?? 0,
+          startRequestEntityEpoch: parts.timing.startRequestEntityEpoch ?? 0,
+          startRequestEntityNano: parts.timing.startRequestEntityNano ?? 0,
+          endRequestEntityEpoch: parts.timing.endRequestEntityEpoch ?? 0,
+          endRequestEntityNano: parts.timing.endRequestEntityNano ?? 0,
+          startResponseEntityEpoch: parts.timing.startResponseEntityEpoch ?? 0,
+          startResponseEntityNano: parts.timing.startResponseEntityNano ?? 0,
+          endResponseEntityEpoch: parts.timing.endResponseEntityEpoch ?? 0,
+          endResponseEntityNano: parts.timing.endResponseEntityNano ?? 0,
+        },
         infos: parts.infos,
-        start: parts.start || 0,
         entityBytesReceived: parts.entityBytesReceived,
         entityContentType: parts.entityContentType,
         entityEncoding: parts.entityEncoding,
       });
-    });
+    // });
 
   }
 
@@ -147,6 +169,7 @@ export class CurlClient {
       infos: [],
       entityBytesReceived: 0,
       entityEncoding: "identity",
+      timing: {},
     };
     this.parts.push(parts);
     return [handle, parts];
@@ -214,6 +237,21 @@ const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
     // if backpressure is triggered, we need to track some state and bail out if the stream wants us to pause
     handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => {
 
+      // time tracking
+
+      const nowNanos = Number(process.hrtime.bigint());
+      const nowEpoch = Date.now();
+
+      parts.timing.endResponseEntityEpoch = nowEpoch;
+      parts.timing.endResponseEntityNano = nowNanos;
+
+      if (parts.timing.startResponseEntityEpoch === undefined) {
+        parts.timing.startResponseEntityEpoch = nowEpoch;
+        parts.timing.startResponseEntityNano = nowNanos;
+      }
+
+      // data handling
+
       // the last stream write wanted backpressure, inform libcurl to back off
       if (writeState.wantsPause) {
         return CurlWriteFunc.Pause;
@@ -244,8 +282,25 @@ const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
 
     // fastest way is to just discard the WRITEFUNCTION results
     // attempts to use Curl.option.NOBODY work but have unexplainable delays before the onMessage hook is called
+    // UPDATE: was the NOBODY way a victim of FlatPromise.resolve not registring a MicroTask?
 
     handle.setOpt(Curl.option.WRITEFUNCTION, (data, size, nmemb) => {
+
+      // time tracking
+
+      const nowNanos = Number(process.hrtime.bigint());
+      const nowEpoch = Date.now();
+
+      parts.timing.endResponseEntityEpoch = nowEpoch;
+      parts.timing.endResponseEntityNano = nowNanos;
+
+      if (parts.timing.startResponseEntityEpoch === undefined) {
+        parts.timing.startResponseEntityEpoch = nowEpoch;
+        parts.timing.startResponseEntityNano = nowNanos;
+      }
+
+      // data handling (i.e. none, throw it away)
+
       return data.length;
     });
 
@@ -281,18 +336,60 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
   const { infos } = parts;
 
   handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
-    const now = Date.now();
+
+    
+
+    const nowNanos = Number(process.hrtime.bigint());
+    const nowEpoch = Date.now();
     switch (infoType) {
-      case CurlInfoDebug.Text:
-        infos.push({ at: now, message: content.toString().trim() });
+
+      case CurlInfoDebug.Text: {
+
+        // time tracking
+        if (parts.timing.startEpoch === undefined) {
+          console.log(`${new Date().toISOString()} - tracking libcurl startEpoch`);
+          parts.timing.startEpoch = nowEpoch;
+          parts.timing.startNano = nowNanos;
+        }
+
+        infos.push({ epoch: nowEpoch, message: content.toString().trim() });
         break;
-      case CurlInfoDebug.HeaderIn:
+      }
+
+      case CurlInfoDebug.HeaderIn: {
+
+        // time tracking
+        parts.timing.lastResponseHeaderEpoch = nowEpoch;
+        parts.timing.lastResponseHeaderNano = nowNanos;
+
+        if (parts.timing.firstResponseHeaderEpoch === undefined) {
+          parts.timing.firstResponseHeaderEpoch = nowEpoch;
+          parts.timing.firstResponseHeaderNano = nowNanos;
+        }
+
+        // response header tracking
+
         if (content.length === 2 && LAST_HEADER.equals(content)) {
           // last header, do nothing
         } else {
           bufToHeaderLines(content).forEach(header => processHeaderForTracking(header, parts));
         }
         break;
+      }
+
+      case CurlInfoDebug.HeaderOut: {
+
+        // time tracking
+        parts.timing.lastRequestHeaderEpoch = nowEpoch;
+        parts.timing.lastRequestHeaderNano = nowNanos;
+
+        if (parts.timing.firstRequestHeaderEpoch === undefined) {
+          parts.timing.firstRequestHeaderEpoch = nowEpoch;
+          parts.timing.firstRequestHeaderNano = nowNanos;
+        }
+
+        break;
+      }
     }
 
     // this must return 0, the TypeScript type sig is wrong (says void)
@@ -317,33 +414,58 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
   }
 };
 
-const addRequestEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
-  if (options.requestEntity instanceof Buffer) {
-    return addRequestBufferEntity(handle, options, flatPromise);
+const addRequestEntity = (handle: Easy, parts: RequestParts): void => {
+  if (parts.options.requestEntity instanceof Buffer) {
+    return addRequestBufferEntity(handle, parts);
     // tslint:disable-next-line:no-else-after-return
-  } else if (options.requestEntity instanceof Readable) {
-    return addRequestStreamEntity(handle, options, flatPromise);
+  } else if (parts.options.requestEntity instanceof Readable) {
+    return addRequestStreamEntity(handle, parts);
   } else {
     // no request entity
-    if (options.method === "POST" || options.method === "PUT") {
+    if (parts.options.method === "POST" || parts.options.method === "PUT") {
       handle.setOpt(Curl.option.READFUNCTION, (data, size, nitems) => {
+
+        // time tracking
+
+        const nowNanos = Number(process.hrtime.bigint());
+        const nowEpoch = Date.now();
+
+        parts.timing.endRequestEntityEpoch = nowEpoch;
+        parts.timing.endRequestEntityNano = nowNanos;
+        parts.timing.startRequestEntityEpoch = nowEpoch;
+        parts.timing.startRequestEntityNano = nowNanos;
+
         return 0;
       });
     }
   }
 };
 
-const addRequestBufferEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
-  if (options.requestEntity instanceof Buffer) {
+const addRequestBufferEntity = (handle: Easy, parts: RequestParts): void => {
+  if (parts.options.requestEntity instanceof Buffer) {
     // when request entity is a Buffer
 
     let offset = 0;
-    const entityBuf = options.requestEntity;
+    const entityBuf = parts.options.requestEntity;
 
     handle.setOpt(Curl.option.POSTFIELDSIZE, entityBuf.length);
 
     // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
     handle.setOpt(Curl.option.READFUNCTION, (data, size, nitems) => {
+
+      // time tracking
+
+      const nowNanos = Number(process.hrtime.bigint());
+      const nowEpoch = Date.now();
+
+      parts.timing.endRequestEntityEpoch = nowEpoch;
+      parts.timing.endRequestEntityNano = nowNanos;
+
+      if (parts.timing.startRequestEntityEpoch === undefined) {
+        parts.timing.startRequestEntityEpoch = nowEpoch;
+        parts.timing.startRequestEntityNano = nowNanos;
+      }
+
       const maxBytesToRead = size * nitems;
       const bytesCopied = entityBuf.copy(data, 0, offset, maxBytesToRead + offset);
       offset += bytesCopied;
@@ -352,11 +474,11 @@ const addRequestBufferEntity = (handle: Easy, options: ExecuteOptions, flatPromi
   }
 };
 
-const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromise: FlatPromise<ExecuteResult>): void => {
-  if (options.requestEntity instanceof Readable) {
+const addRequestStreamEntity = (handle: Easy, parts: RequestParts): void => {
+  if (parts.options.requestEntity instanceof Readable) {
     // when request entity is a Readable stream
 
-    const entityStream = options.requestEntity;
+    const entityStream = parts.options.requestEntity;
 
     // setup a holder who is captured by the READFUNCTION lambda scope
 
@@ -408,10 +530,23 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
     // https://curl.haxx.se/libcurl/c/CURLOPT_READFUNCTION.html
     handle.setOpt(Curl.option.READFUNCTION, (libcurlBuffer, size, nitems) => {
 
+      // time tracking
+
+      const nowNanos = Number(process.hrtime.bigint());
+      const nowEpoch = Date.now();
+
+      parts.timing.endRequestEntityEpoch = nowEpoch;
+      parts.timing.endRequestEntityNano = nowNanos;
+
+      if (parts.timing.startRequestEntityEpoch === undefined) {
+        parts.timing.startRequestEntityEpoch = nowEpoch;
+        parts.timing.startRequestEntityNano = nowNanos;
+      }
+
       // error on the stream, abort the READFUNCTION and reject the Promise
       if (streamState.error) {
         const scopedError = streamState.error;
-        setImmediate(() => flatPromise.reject(scopedError));
+        setImmediate(() => parts.flatPromise.reject(scopedError));
         return CurlReadFunc.Abort;
       }
 
@@ -459,7 +594,7 @@ const addRequestStreamEntity = (handle: Easy, options: ExecuteOptions, flatPromi
 
     entityStream.on("error", e => {
       log.error(`stream error: ${e.message}`);
-      setImmediate(() => flatPromise.reject(e));
+      setImmediate(() => parts.flatPromise.reject(e));
     });
   }
 };

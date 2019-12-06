@@ -26,7 +26,6 @@ const run = async () => {
       const p = client.execute({
         method: "GET",
         url: `http://${host}:${port}/get`,
-        compression: true,
         headers: {
           [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
           // [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: respLen,
@@ -34,22 +33,6 @@ const run = async () => {
           "Accept-Encoding": "gzip",
           "X-TEST": "abc ",
           "X-TEST-2": "abc  ",
-        },
-        // bufferSize: 1024,
-        // onInfo: (epoch, message) => {
-        //   log.debug(`info: ${message}`);
-        // },
-        // onHeaderSent: (epoch, header) => {
-        //   log.warn(`header >> ${header}`);
-        // },
-        onHeaderReceived: (epoch, header) => {
-          log.warn(`header << ${header}`);
-        },
-        // onDataSent: (epoch, data) => {
-        //   log.warn(`data >> ${data.length} bytes`);
-        // },
-        onDataReceived: (epoch, data) => {
-          log.warn(`data << ${data.length} bytes [${data.toString("utf8")}]`);
         },
       });
       promises.push(p);
