@@ -14,7 +14,7 @@ const run = async () => {
   // const webserver1 = await startWebserver(9990);
 
   const client = new CurlClient({
-    maxConnectionsPerHost: 20,
+    maxConnectionsPerHost: 5,
   });
 
   try {
@@ -37,12 +37,14 @@ const run = async () => {
     const promises: Promise<ExecuteResult>[] = [];
 
     log.error("before bulk");
-    for (let i = 0; i < 100; i++) {
+    for (let i = 0; i < 1; i++) {
       promises.push(doGET(client));
     }
 
     const results = await Promise.all(promises);
     log.error("after bulk");
+
+    console.log(JSON.stringify(results[0], null, 2));
 
     for (const result of results) {
 
@@ -69,7 +71,7 @@ const doGET = (client: CurlClient): Promise<ExecuteResult> => {
       [Headers.X_STATUS_CODE]: "418",
       [Headers.X_RESPONSE_TYPE]: Headers.X_RESPONSE_TYPE_VALUE_RANDOM,
       [Headers.X_RADNOM_RESPONSE_BYTES_LENGTH]: "12",
-      [Headers.X_RESPONSE_DELAY_MILLIS]: "5",
+      // [Headers.X_RESPONSE_DELAY_MILLIS]: "5",
     },
     requestEntity: Buffer.from("boo"),
   });

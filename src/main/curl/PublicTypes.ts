@@ -37,29 +37,19 @@ export interface ExecuteTiming {
 
   initEpoch: number;
   initNano: number;
-  connectedEpoch: number;
   connectedNano: number;
-  endEpoch: number;
   endNano: number;
 
   // request parts
-  firstRequestHeaderEpoch: number;
   firstRequestHeaderNano: number;
-  lastRequestHeaderEpoch: number;
   lastRequestHeaderNano: number;
-  startRequestEntityEpoch: number;
   startRequestEntityNano: number;
-  endRequestEntityEpoch: number;
   endRequestEntityNano: number;
 
   // response parts
-  firstResponseHeaderEpoch: number;
   firstResponseHeaderNano: number;
-  lastResponseHeaderEpoch: number;
   lastResponseHeaderNano: number;
-  startResponseEntityEpoch: number;
   startResponseEntityNano: number;
-  endResponseEntityEpoch: number;
   endResponseEntityNano: number;
 
 }

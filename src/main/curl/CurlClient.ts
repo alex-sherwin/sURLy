@@ -122,25 +122,15 @@ export class CurlClient {
       timing: {
         initEpoch: parts.timing.initEpoch ?? 0,
         initNano: parts.timing.initNano ?? 0,
-        connectedEpoch: parts.timing.connectedEpoch ?? 0,
         connectedNano: parts.timing.connectedNano ?? 0,
-        endEpoch: nowEpoch,
         endNano: nowNano,
-        firstRequestHeaderEpoch: parts.timing.firstRequestHeaderEpoch ?? 0,
         firstRequestHeaderNano: parts.timing.firstRequestHeaderNano ?? 0,
-        lastRequestHeaderEpoch: parts.timing.lastRequestHeaderEpoch ?? 0,
         lastRequestHeaderNano: parts.timing.lastRequestHeaderNano ?? 0,
-        firstResponseHeaderEpoch: parts.timing.firstResponseHeaderEpoch ?? 0,
         firstResponseHeaderNano: parts.timing.firstResponseHeaderNano ?? 0,
-        lastResponseHeaderEpoch: parts.timing.lastResponseHeaderEpoch ?? 0,
         lastResponseHeaderNano: parts.timing.lastResponseHeaderNano ?? 0,
-        startRequestEntityEpoch: parts.timing.startRequestEntityEpoch ?? 0,
         startRequestEntityNano: parts.timing.startRequestEntityNano ?? 0,
-        endRequestEntityEpoch: parts.timing.endRequestEntityEpoch ?? 0,
         endRequestEntityNano: parts.timing.endRequestEntityNano ?? 0,
-        startResponseEntityEpoch: parts.timing.startResponseEntityEpoch ?? 0,
         startResponseEntityNano: parts.timing.startResponseEntityNano ?? 0,
-        endResponseEntityEpoch: parts.timing.endResponseEntityEpoch ?? 0,
         endResponseEntityNano: parts.timing.endResponseEntityNano ?? 0,
       },
       infos: parts.infos,
@@ -242,13 +232,10 @@ const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
       // time tracking
 
       const nowNanos = Number(process.hrtime.bigint());
-      const nowEpoch = Date.now();
 
-      parts.timing.endResponseEntityEpoch = nowEpoch;
       parts.timing.endResponseEntityNano = nowNanos;
 
-      if (parts.timing.startResponseEntityEpoch === undefined) {
-        parts.timing.startResponseEntityEpoch = nowEpoch;
+      if (parts.timing.startResponseEntityNano === undefined) {
         parts.timing.startResponseEntityNano = nowNanos;
       }
 
@@ -291,13 +278,10 @@ const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
       // time tracking
 
       const nowNanos = Number(process.hrtime.bigint());
-      const nowEpoch = Date.now();
 
-      parts.timing.endResponseEntityEpoch = nowEpoch;
       parts.timing.endResponseEntityNano = nowNanos;
 
-      if (parts.timing.startResponseEntityEpoch === undefined) {
-        parts.timing.startResponseEntityEpoch = nowEpoch;
+      if (parts.timing.startResponseEntityNano === undefined) {
         parts.timing.startResponseEntityNano = nowNanos;
       }
 
@@ -357,8 +341,7 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
           parts.timing.initNano = nowNanos;
         }
 
-        if (parts.timing.connectedEpoch === undefined && CONNECTED_TO_REGEX.test(message)) {
-          parts.timing.connectedEpoch = nowEpoch;
+        if (parts.timing.connectedNano === undefined && CONNECTED_TO_REGEX.test(message)) {
           parts.timing.connectedNano = nowNanos;
         }
 
@@ -369,11 +352,9 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
       case CurlInfoDebug.HeaderIn: {
 
         // time tracking
-        parts.timing.lastResponseHeaderEpoch = nowEpoch;
         parts.timing.lastResponseHeaderNano = nowNanos;
 
-        if (parts.timing.firstResponseHeaderEpoch === undefined) {
-          parts.timing.firstResponseHeaderEpoch = nowEpoch;
+        if (parts.timing.firstResponseHeaderNano === undefined) {
           parts.timing.firstResponseHeaderNano = nowNanos;
         }
 
@@ -390,11 +371,9 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
       case CurlInfoDebug.HeaderOut: {
 
         // time tracking
-        parts.timing.lastRequestHeaderEpoch = nowEpoch;
         parts.timing.lastRequestHeaderNano = nowNanos;
 
-        if (parts.timing.firstRequestHeaderEpoch === undefined) {
-          parts.timing.firstRequestHeaderEpoch = nowEpoch;
+        if (parts.timing.firstRequestHeaderNano === undefined) {
           parts.timing.firstRequestHeaderNano = nowNanos;
         }
 
@@ -440,9 +419,7 @@ const addRequestEntity = (handle: Easy, parts: RequestParts): void => {
         const nowNanos = Number(process.hrtime.bigint());
         const nowEpoch = Date.now();
 
-        parts.timing.endRequestEntityEpoch = nowEpoch;
         parts.timing.endRequestEntityNano = nowNanos;
-        parts.timing.startRequestEntityEpoch = nowEpoch;
         parts.timing.startRequestEntityNano = nowNanos;
 
         return 0;
@@ -468,11 +445,9 @@ const addRequestBufferEntity = (handle: Easy, parts: RequestParts): void => {
       const nowNanos = Number(process.hrtime.bigint());
       const nowEpoch = Date.now();
 
-      parts.timing.endRequestEntityEpoch = nowEpoch;
       parts.timing.endRequestEntityNano = nowNanos;
 
-      if (parts.timing.startRequestEntityEpoch === undefined) {
-        parts.timing.startRequestEntityEpoch = nowEpoch;
+      if (parts.timing.startRequestEntityNano === undefined) {
         parts.timing.startRequestEntityNano = nowNanos;
       }
 
@@ -545,11 +520,9 @@ const addRequestStreamEntity = (handle: Easy, parts: RequestParts): void => {
       const nowNanos = Number(process.hrtime.bigint());
       const nowEpoch = Date.now();
 
-      parts.timing.endRequestEntityEpoch = nowEpoch;
       parts.timing.endRequestEntityNano = nowNanos;
 
-      if (parts.timing.startRequestEntityEpoch === undefined) {
-        parts.timing.startRequestEntityEpoch = nowEpoch;
+      if (parts.timing.startRequestEntityNano === undefined) {
         parts.timing.startRequestEntityNano = nowNanos;
       }
 
