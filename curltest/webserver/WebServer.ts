@@ -81,7 +81,7 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 };
 
 const getResponseDelayMillis = (req: http.IncomingMessage): number => {
-  const value = req.headers[Headers.X_MAX_RESPONSE_DELAY_MILLIS];
+  const value = req.headers[Headers.X_RESPONSE_DELAY_MILLIS];
   if (typeof value === "string") {
     const maxDelayMs = parseInt(value);
     return _round(Math.random() * maxDelayMs, 0);

@@ -14,6 +14,8 @@ import { Headers } from "./headers";
 // not a typo, force extra buffers for default sizes of 16, 32, 64, 128 etc.
 const DEFAULT_MAX_RESPONSE_RANDOM_BYTES = 1025;
 
+let reqNum = 0;
+
 export const startWebserver = (port: number): Promise<http.Server> => {
 
   return new Promise((resolve, reject) => {
@@ -40,7 +42,9 @@ export const startWebserver = (port: number): Promise<http.Server> => {
       // res.write("hello world");
       // res.end();
 
-      log.debug(`starting to handle ${req.method} web request`);
+      const currentReqNum = ++reqNum;
+
+      log.debug(`${currentReqNum} - starting to handle ${req.method} web request`);
 
       // for (const headerName in req.headers) {
       //   const value = req.headers[headerName];
@@ -84,15 +88,17 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
             res.statusCode = getResponseStatusCode(req);
 
-            log.debug(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
+            log.debug(`${currentReqNum} - ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
 
             return res.end(responseBuf);
           });
 
         } else {
-          log.debug(`ending web request`);
+          log.debug(`${currentReqNum} - ending web request`);
           res.setHeader("Content-Type", "application/octet-stream");
-          return res.end(getRandomResponseBytes(req));
+          return res.end(getRandomResponseBytes(req), () => {
+            log.info(`${currentReqNum} - done ending`)
+          });
 
         }
 
@@ -101,6 +107,7 @@ export const startWebserver = (port: number): Promise<http.Server> => {
       const delayMs = getResponseDelayMillis(req);
 
       if (delayMs > 0) {
+        log.debug(`${currentReqNum} - delaying by ${delayMs} millis`);
         setTimeout(processResponse, delayMs);
       } else {
         processResponse();
@@ -127,10 +134,9 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 };
 
 const getResponseDelayMillis = (req: http.IncomingMessage): number => {
-  const value = req.headers[Headers.X_MAX_RESPONSE_DELAY_MILLIS];
+  const value = req.headers[Headers.X_RESPONSE_DELAY_MILLIS];
   if (typeof value === "string") {
-    const maxDelayMs = parseInt(value);
-    return _round(Math.random() * maxDelayMs, 0);
+    return parseInt(value, 10);
   }
   return 0;
 };
