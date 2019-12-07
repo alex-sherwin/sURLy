@@ -120,8 +120,10 @@ export class CurlClient {
       headers,
       httpVersion,
       timing: {
-        startEpoch: parts.timing.startEpoch ?? 0,
-        startNano: parts.timing.startNano ?? 0,
+        initEpoch: parts.timing.initEpoch ?? 0,
+        initNano: parts.timing.initNano ?? 0,
+        connectedEpoch: parts.timing.connectedEpoch ?? 0,
+        connectedNano: parts.timing.connectedNano ?? 0,
         endEpoch: nowEpoch,
         endNano: nowNano,
         firstRequestHeaderEpoch: parts.timing.firstRequestHeaderEpoch ?? 0,
@@ -349,9 +351,15 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
 
         // time tracking
         // is this a good way? probably not, but, most accurate way I've seen so far... 
-        if (parts.timing.startEpoch === undefined && CONNECTED_TO_REGEX.test(message)) {
-          parts.timing.startEpoch = nowEpoch;
-          parts.timing.startNano = nowNanos;
+
+        if (parts.timing.initEpoch === undefined) {
+          parts.timing.initEpoch = nowEpoch;
+          parts.timing.initNano = nowNanos;
+        }
+
+        if (parts.timing.connectedEpoch === undefined && CONNECTED_TO_REGEX.test(message)) {
+          parts.timing.connectedEpoch = nowEpoch;
+          parts.timing.connectedNano = nowNanos;
         }
 
         infos.push({ epoch: nowEpoch, message });

@@ -33,12 +33,11 @@ const run = async () => {
     //   highWaterMark: 128 * 1024,
     // });
 
-    
-
+  
     const promises: Promise<ExecuteResult>[] = [];
 
     log.error("before bulk");
-    for (let i = 0; i < 1; i++) {
+    for (let i = 0; i < 10; i++) {
       promises.push(doGET(client));
     }
 
@@ -47,8 +46,9 @@ const run = async () => {
 
     for (const result of results) {
 
-      const elapsedMillis = (result.timing.endNano - result.timing.startNano) / 1_000_000;
-      console.log(`${new Date().toISOString()} - elapsed ${elapsedMillis} ms`);
+      const elapsedInitMillis = (result.timing.endNano - result.timing.initNano) / 1_000_000;
+      const elapsedRequestMillis = (result.timing.endNano - result.timing.connectedNano) / 1_000_000;
+      console.log(`${new Date().toISOString()} - elapsed total=${elapsedInitMillis}ms request=${elapsedRequestMillis}`);
     }
 
   } catch (e) {

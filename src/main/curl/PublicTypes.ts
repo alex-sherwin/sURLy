@@ -35,8 +35,10 @@ export interface Info {
 
 export interface ExecuteTiming {
 
-  startEpoch: number;
-  startNano: number;
+  initEpoch: number;
+  initNano: number;
+  connectedEpoch: number;
+  connectedNano: number;
   endEpoch: number;
   endNano: number;
 
