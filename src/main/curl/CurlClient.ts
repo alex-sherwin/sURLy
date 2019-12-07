@@ -115,37 +115,37 @@ export class CurlClient {
     // runs as-close-to-immediately-as-possible we need a setImmediate to get onto
     // the next event loop run without letting libuv sleep to the OS
     // setImmediate(() => {
-      flatPromise.resolve({
-        status,
-        headers,
-        httpVersion,
-        timing: {
-          startEpoch: parts.timing.startEpoch ?? 0,
-          startNano: parts.timing.startNano ?? 0,
-          endEpoch: nowEpoch,
-          endNano: nowNano,
-          firstRequestHeaderEpoch: parts.timing.firstRequestHeaderEpoch ?? 0,
-          firstRequestHeaderNano: parts.timing.firstRequestHeaderNano ?? 0,
-          lastRequestHeaderEpoch: parts.timing.lastRequestHeaderEpoch ?? 0,
-          lastRequestHeaderNano: parts.timing.lastRequestHeaderNano ?? 0,
-          firstResponseHeaderEpoch: parts.timing.firstResponseHeaderEpoch ?? 0,
-          firstResponseHeaderNano: parts.timing.firstResponseHeaderNano ?? 0,
-          lastResponseHeaderEpoch: parts.timing.lastResponseHeaderEpoch ?? 0,
-          lastResponseHeaderNano: parts.timing.lastResponseHeaderNano ?? 0,
-          startRequestEntityEpoch: parts.timing.startRequestEntityEpoch ?? 0,
-          startRequestEntityNano: parts.timing.startRequestEntityNano ?? 0,
-          endRequestEntityEpoch: parts.timing.endRequestEntityEpoch ?? 0,
-          endRequestEntityNano: parts.timing.endRequestEntityNano ?? 0,
-          startResponseEntityEpoch: parts.timing.startResponseEntityEpoch ?? 0,
-          startResponseEntityNano: parts.timing.startResponseEntityNano ?? 0,
-          endResponseEntityEpoch: parts.timing.endResponseEntityEpoch ?? 0,
-          endResponseEntityNano: parts.timing.endResponseEntityNano ?? 0,
-        },
-        infos: parts.infos,
-        entityBytesReceived: parts.entityBytesReceived,
-        entityContentType: parts.entityContentType,
-        entityEncoding: parts.entityEncoding,
-      });
+    flatPromise.resolve({
+      status,
+      headers,
+      httpVersion,
+      timing: {
+        startEpoch: parts.timing.startEpoch ?? 0,
+        startNano: parts.timing.startNano ?? 0,
+        endEpoch: nowEpoch,
+        endNano: nowNano,
+        firstRequestHeaderEpoch: parts.timing.firstRequestHeaderEpoch ?? 0,
+        firstRequestHeaderNano: parts.timing.firstRequestHeaderNano ?? 0,
+        lastRequestHeaderEpoch: parts.timing.lastRequestHeaderEpoch ?? 0,
+        lastRequestHeaderNano: parts.timing.lastRequestHeaderNano ?? 0,
+        firstResponseHeaderEpoch: parts.timing.firstResponseHeaderEpoch ?? 0,
+        firstResponseHeaderNano: parts.timing.firstResponseHeaderNano ?? 0,
+        lastResponseHeaderEpoch: parts.timing.lastResponseHeaderEpoch ?? 0,
+        lastResponseHeaderNano: parts.timing.lastResponseHeaderNano ?? 0,
+        startRequestEntityEpoch: parts.timing.startRequestEntityEpoch ?? 0,
+        startRequestEntityNano: parts.timing.startRequestEntityNano ?? 0,
+        endRequestEntityEpoch: parts.timing.endRequestEntityEpoch ?? 0,
+        endRequestEntityNano: parts.timing.endRequestEntityNano ?? 0,
+        startResponseEntityEpoch: parts.timing.startResponseEntityEpoch ?? 0,
+        startResponseEntityNano: parts.timing.startResponseEntityNano ?? 0,
+        endResponseEntityEpoch: parts.timing.endResponseEntityEpoch ?? 0,
+        endResponseEntityNano: parts.timing.endResponseEntityNano ?? 0,
+      },
+      infos: parts.infos,
+      entityBytesReceived: parts.entityBytesReceived,
+      entityContentType: parts.entityContentType,
+      entityEncoding: parts.entityEncoding,
+    });
     // });
 
   }
@@ -330,6 +330,7 @@ const processHeaderForTracking = (header: string, parts: RequestParts): void => 
 };
 
 const LAST_HEADER = Buffer.from("\r\n");
+const CONNECTED_TO_REGEX = /^Connected to/;
 
 const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
 
@@ -337,22 +338,23 @@ const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
 
   handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
 
-    
-
     const nowNanos = Number(process.hrtime.bigint());
     const nowEpoch = Date.now();
+
     switch (infoType) {
 
       case CurlInfoDebug.Text: {
 
+        const message = content.toString().trim();
+
         // time tracking
-        if (parts.timing.startEpoch === undefined) {
-          console.log(`${new Date().toISOString()} - tracking libcurl startEpoch`);
+        // is this a good way? probably not, but, most accurate way I've seen so far... 
+        if (parts.timing.startEpoch === undefined && CONNECTED_TO_REGEX.test(message)) {
           parts.timing.startEpoch = nowEpoch;
           parts.timing.startNano = nowNanos;
         }
 
-        infos.push({ epoch: nowEpoch, message: content.toString().trim() });
+        infos.push({ epoch: nowEpoch, message });
         break;
       }
 

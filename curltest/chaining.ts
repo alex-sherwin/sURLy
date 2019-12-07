@@ -14,7 +14,7 @@ const run = async () => {
   // const webserver1 = await startWebserver(9990);
 
   const client = new CurlClient({
-    maxConnectionsPerHost: 10
+    maxConnectionsPerHost: 2
   });
 
   try {
@@ -33,15 +33,17 @@ const run = async () => {
     //   highWaterMark: 128 * 1024,
     // });
 
-    log.error("before 2");
+    
 
     const promises: Promise<ExecuteResult>[] = [];
 
-    for (let i = 0; i < 100; i++) {
+    log.error("before bulk");
+    for (let i = 0; i < 1; i++) {
       promises.push(doGET(client));
     }
 
     const results = await Promise.all(promises);
+    log.error("after bulk");
 
     for (const result of results) {
 

@@ -63,34 +63,38 @@ export const startWebserver = (port: number): Promise<http.Server> => {
 
       const processResponse = () => {
 
-        const bufs: Buffer[] = [];
+        if (responseType === "echo") {
 
-        req.on("data", (buf) => {
-          bufs.push(buf);
-        });
+          const bufs: Buffer[] = [];
 
-        req.on("end", () => {
+          req.on("data", (buf) => {
+            bufs.push(buf);
+          });
 
-          let responseBuf: Buffer;
+          req.on("end", () => {
 
-          const reqBuf = Buffer.concat(bufs);
+            let responseBuf: Buffer;
 
-          log.silly(`server received entity len=${reqBuf.length}`);
+            const reqBuf = Buffer.concat(bufs);
 
-          if (responseType === "echo") {
+            log.silly(`server received entity len=${reqBuf.length}`);
+
             responseBuf = reqBuf;
             res.setHeader("Content-Type", req.header("content-type") || "application/octet-stream");
-          } else {
-            res.setHeader("Content-Type", "application/octet-stream");
-            responseBuf = getRandomResponseBytes(req);
-          }
 
-          res.statusCode = getResponseStatusCode(req);
+            res.statusCode = getResponseStatusCode(req);
 
-          log.debug(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
+            log.debug(`ending web request req len=${reqBuf.length} resp len=${responseBuf.length}`);
 
-          return res.end(responseBuf);
-        });
+            return res.end(responseBuf);
+          });
+
+        } else {
+          log.debug(`ending web request`);
+          res.setHeader("Content-Type", "application/octet-stream");
+          return res.end(getRandomResponseBytes(req));
+
+        }
 
       };
 
