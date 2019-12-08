@@ -16,7 +16,8 @@
     "keyofStringsOnly": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
-    "allowUnreachableCode": false
+    "allowUnreachableCode": false,
+    "importHelpers": true
   },
   "include": ["./src", "./curltest"]
 }

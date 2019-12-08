@@ -10,10 +10,31 @@ module.exports = merge.smart(baseConfig, {
   entry: {
     main: './src/main/main.ts'
   },
-  externals: {
-    "node-libcurl": 'require("node-libcurl")',
-    // "node-libcurl": "node-libcurl",
-  },
+  // externals: [
+  //   function (context, request, callback) {
+  //     // console.log(context);
+  //     if (/node-libcurl\/dist/.test(context) && /package\.json/.test(request)) {
+  //       console.log("** HIT node-libcurl!");
+  //       console.log(typeof context);
+  //       console.log(typeof request);
+  //       console.log(arguments);
+        
+  //       return callback(null, 'require("../../package22.json")');
+  //     }
+  //     if (/node-pre-gyp\/lib/.test(context) && /package\.json/.test(request)) {
+  //       console.log("** HIT node-pre-gyp!");
+  //       return callback(null, 'require("../../package22.json")');
+  //     }
+  //     // console.log(`ctx=${context} request=${request}`);
+  //     callback();
+  //   }
+  // ],
+  // externals: {
+  // "node-libcurl": 'require("node-libcurl")',
+  // "node-pre-gyp": 'require("node-pre-gyp")'
+  // "node-libcurl": "node-libcurl",
+  // "./package.json": 'require("FIXME")'
+  // },
   module: {
     rules: [
       {
@@ -49,16 +70,25 @@ module.exports = merge.smart(baseConfig, {
             ['@babel/plugin-proposal-class-properties', { loose: true }]
           ]
         }
-      }
+      },
+      {
+        test: /\.tsx?$/,
+        exclude: /node_modules/,
+        loader: 'ts-loader'
+      },
     ]
   },
   plugins: [
-    new ForkTsCheckerWebpackPlugin({
-      reportFiles: ['src/main/**/*', 'src/shared/**/*'],
-      checkSyntacticErrors: true,
-    }),
+    // new ForkTsCheckerWebpackPlugin({
+    //   reportFiles: ['src/main/**/*', 'src/shared/**/*'],
+    //   checkSyntacticErrors: true,
+    // }),
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
-    })
+    }),
+    new webpack.NormalModuleReplacementPlugin(
+      /\.\/src\/main\/package\.json/,
+      'FIXME.json'
+    ),
   ]
 });

@@ -1,11 +1,19 @@
+import "../../package.json";
+
 // tslint:disable-next-line:no-var-requires
 require("source-map-support").install();
 
 import { app, BrowserWindow } from 'electron';
 import * as path from 'path';
 import * as url from 'url';
+import _trimStart from "lodash/trimStart";
+
+import { CurlClient, ExecuteResult } from './curl';
+import { log } from './log';
 
 let win: BrowserWindow | null;
+
+const x = _trimStart("  asfa");
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer');
@@ -70,6 +78,77 @@ app.on('activate', () => {
     createWindow();
   }
 });
+
+
+const run = async () => {
+  // const webserver1 = await startWebserver(9990);
+
+  const client = new CurlClient({
+    maxConnectionsPerHost: 5,
+  });
+
+  try {
+
+    log.error("before 1");
+
+    // let responseEntity = fs.createWriteStream("/Users/asherwin/Desktop/out", {
+    //   highWaterMark: 128 * 1024,
+    // });
+
+    const p1 = await doGET(client);
+
+    log.error("after 1 wait");
+
+    // responseEntity = fs.createWriteStream("/Users/asherwin/Desktop/out", {
+    //   highWaterMark: 128 * 1024,
+    // });
+
+  
+    const promises: Promise<ExecuteResult>[] = [];
+
+    log.error("before bulk");
+    for (let i = 0; i < 1; i++) {
+      promises.push(doGET(client));
+    }
+
+    const results = await Promise.all(promises);
+    log.error("after bulk");
+
+    console.log(JSON.stringify(results[0], null, 2));
+
+    for (const result of results) {
+
+      const elapsedInitMillis = (result.timing.endNano - result.timing.initNano) / 1000000;
+      const elapsedRequestMillis = (result.timing.endNano - result.timing.connectedNano) / 1000000;
+      console.log(`${new Date().toISOString()} - elapsed total=${elapsedInitMillis}ms request=${elapsedRequestMillis}`);
+    }
+
+  } catch (e) {
+    console.log(e);
+  } finally {
+    log.debug("closing curl client");
+    client.close();
+  }
+  console.log(new Date().toISOString() + "- done waiting");
+  // stopWebserver(webserver1);
+};
+
+const doGET = (client: CurlClient): Promise<ExecuteResult> => {
+  return client.execute({
+    method: "GET",
+    url: `http://localhost:9990/post`,
+    headers: {
+      "x-status-code": "418",
+      "x-response-type": "random",
+      "x-max-random-response-bytes": "12",
+      // [Headers.X_RESPONSE_DELAY_MILLIS]: "5",
+    },
+    requestEntity: Buffer.from("boo"),
+  });
+
+};
+
+run();
 
 // run main modules
 
