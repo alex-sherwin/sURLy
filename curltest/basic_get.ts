@@ -1,4 +1,4 @@
-import { Curl, CurlCode, Easy, Multi, CurlInfoDebug } from "node-libcurl";
+import { Curl, CurlCode, Easy, Multi, CurlInfoDebug } from "@capecodes/node-libcurl";
 import _round from "lodash/round";
 
 import { startWebserver, stopWebserver, Headers } from "./webserver";

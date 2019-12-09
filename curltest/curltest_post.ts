@@ -1,6 +1,6 @@
 import http from "http";
 import { URL } from "url";
-import { Curl, Easy, Multi } from "node-libcurl";
+import { Curl, Easy, Multi } from "@capecodes/node-libcurl";
 import _round from "lodash/round";
 import crypto from "crypto";
 

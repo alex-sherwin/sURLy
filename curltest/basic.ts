@@ -1,5 +1,5 @@
 import http from "http";
-import { Curl } from "node-libcurl";
+import { Curl } from "@capecodes/node-libcurl";
 
 let webserver: http.Server | undefined;
 
