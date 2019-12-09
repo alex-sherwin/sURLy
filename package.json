@@ -4,9 +4,9 @@
   "description": "",
   "main": "./dist/main.js",
   "scripts": {
-    "build-main": "cross-env NODE_ENV=development webpack --config webpack.main.prod.config.js",
+    "build-main": "cross-env NODE_ENV=production webpack --config webpack.main.prod.config.js",
     "build-main-dev": "cross-env NODE_ENV=development webpack --config webpack.main.config.js",
-    "build-renderer": "cross-env NODE_ENV=development webpack --config webpack.renderer.prod.config.js",
+    "build-renderer": "cross-env NODE_ENV=production webpack --config webpack.renderer.prod.config.js",
     "build": "npm run build-main && npm run build-renderer",
     "start-renderer-dev": "webpack-dev-server --config webpack.renderer.dev.config.js",
     "start-main-dev": "webpack --config webpack.main.config.js && electron ./dist/main.js",
@@ -163,8 +163,8 @@
     },
     "files": [
       "dist/",
-      "package.json"
-
+      "package.json",
+      "!node_modules/**/*"
     ],
     "win": {
       "target": "nsis"
