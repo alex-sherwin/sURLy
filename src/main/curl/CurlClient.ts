@@ -1,5 +1,5 @@
 // third party
-import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc, CurlWriteFunc } from "node-libcurl";
+import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc, CurlWriteFunc } from "@capecodes/node-libcurl";
 import { Readable } from "stream";
 import _trimEnd from "lodash/trimEnd";
 
