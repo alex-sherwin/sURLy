@@ -1,5 +1,3 @@
-import "../../package.json";
-
 // tslint:disable-next-line:no-var-requires
 require("source-map-support").install();
 
@@ -14,6 +12,8 @@ import { log } from './log';
 let win: BrowserWindow | null;
 
 const x = _trimStart("  asfa");
+
+console.log(process.versions);
 
 const installExtensions = async () => {
   const installer = require('electron-devtools-installer');
@@ -84,7 +84,7 @@ const run = async () => {
   // const webserver1 = await startWebserver(9990);
 
   const client = new CurlClient({
-    maxConnectionsPerHost: 5,
+    maxConnectionsPerHost: 2,
   });
 
   try {
@@ -107,14 +107,14 @@ const run = async () => {
     const promises: Promise<ExecuteResult>[] = [];
 
     log.error("before bulk");
-    for (let i = 0; i < 1; i++) {
+    for (let i = 0; i < 100; i++) {
       promises.push(doGET(client));
     }
 
     const results = await Promise.all(promises);
     log.error("after bulk");
 
-    console.log(JSON.stringify(results[0], null, 2));
+    console.log(JSON.stringify(results[95], null, 2));
 
     for (const result of results) {
 
