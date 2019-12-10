@@ -1,3 +1,5 @@
+'use strict';
+
 // third party
 import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc, CurlWriteFunc } from "@capecodes/node-libcurl";
 import { Readable } from "stream";
@@ -43,9 +45,9 @@ export class CurlClient {
 
     addRequestCommonOptions(handle, options);
     addResponseEntityHandler(handle, parts);
-    addDebugHandler(handle, parts);
+    this.addDebugHandler(handle, parts);
     setRequestMethod(handle, options);
-    addRequestEntity(handle, parts);
+    this.addRequestEntity(handle, parts);
     addRequestHeaders(handle, options);
 
     // register and execute the libcurl Easy handle
@@ -104,6 +106,11 @@ export class CurlClient {
     // remove the Easy handle from the Multi instance
     this.multi.removeHandle(handle);
     // close the Easy handle
+
+    handle.setOpt(Curl.option.DEBUGFUNCTION, null);
+    handle.setOpt(Curl.option.READFUNCTION, null);
+    handle.setOpt(Curl.option.WRITEFUNCTION, null);
+
     handle.close();
 
     const [httpVersion, headers] = parseResponseHeaders(parts.receivedHeaders);
@@ -177,7 +184,107 @@ export class CurlClient {
 
   public close() {
     this.multi.close();
+    delete this.multi;
+    delete this.parts;
+    delete this.handles;
+    delete this.createHandle;
   }
+
+  private addRequestEntity(handle: Easy, parts: RequestParts): void {
+    if (parts.options.requestEntity instanceof Buffer) {
+      return addRequestBufferEntity(handle, parts);
+      // tslint:disable-next-line:no-else-after-return
+    } else if (parts.options.requestEntity instanceof Readable) {
+      return addRequestStreamEntity(handle, parts);
+    } else {
+      // no request entity
+      if (parts.options.method === "POST" || parts.options.method === "PUT") {
+        handle.setOpt(Curl.option.READFUNCTION, function (data, size, nitems) {
+
+          // time tracking
+
+          const nowNanos = Number(process.hrtime.bigint());
+          const nowEpoch = Date.now();
+
+          parts.timing.endRequestEntityNano = nowNanos;
+          parts.timing.startRequestEntityNano = nowNanos;
+
+          return 0;
+        });
+      }
+    }
+  }
+
+  private addDebugHandler(handle: Easy, parts: RequestParts): void {
+
+    // const { infos } = parts;
+    handle.setOpt(Curl.option.DEBUGFUNCTION, function (infoType, content) {
+
+      const nowNanos = Number(process.hrtime.bigint());
+      const nowEpoch = Date.now();
+
+      switch (infoType) {
+
+        case CurlInfoDebug.Text: {
+
+          const message = content.toString().trim();
+
+          // time tracking
+          // is this a good way? probably not, but, most accurate way I've seen so far... 
+
+          if (parts.timing.initEpoch === undefined) {
+            parts.timing.initEpoch = nowEpoch;
+            parts.timing.initNano = nowNanos;
+          }
+
+          if (parts.timing.connectedNano === undefined && CONNECTED_TO_REGEX.test(message)) {
+            parts.timing.connectedNano = nowNanos;
+          }
+
+          parts.infos.push({ epoch: nowEpoch, message });
+          break;
+        }
+
+        case CurlInfoDebug.HeaderIn: {
+
+          // time tracking
+          parts.timing.lastResponseHeaderNano = nowNanos;
+
+          if (parts.timing.firstResponseHeaderNano === undefined) {
+            parts.timing.firstResponseHeaderNano = nowNanos;
+          }
+
+          // response header tracking
+
+          if (content.length === 2 && LAST_HEADER.equals(content)) {
+            // last header, do nothing
+          } else {
+            bufToHeaderLines(content).forEach(header => processHeaderForTracking(header, parts));
+          }
+          break;
+        }
+
+        case CurlInfoDebug.HeaderOut: {
+
+          // time tracking
+          parts.timing.lastRequestHeaderNano = nowNanos;
+
+          if (parts.timing.firstRequestHeaderNano === undefined) {
+            parts.timing.firstRequestHeaderNano = nowNanos;
+          }
+
+          break;
+        }
+      }
+
+      // this must return 0, the TypeScript type sig is wrong (says void)
+      // TODO: update to a newer libcurl once is https://github.com/JCMais/node-libcurl/pull/202 in a stable build
+      // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
+      return 0;
+    });
+  }
+
+
 }
 
 const addOptionsThatMightReject = (handle: Easy, options: ExecuteOptions): Error | null => {
@@ -217,10 +324,10 @@ const addRequestCommonOptions = (handle: Easy, options: ExecuteOptions): void =>
 
 const addResponseEntityHandler = (handle: Easy, parts: RequestParts): void => {
 
-  const { options } = parts;
+  // const { options } = parts;
 
-  if (options.responseEntity) {
-    const responseStream = options.responseEntity;
+  if (parts.options.responseEntity) {
+    const responseStream = parts.options.responseEntity;
 
     const writeState = { wantsPause: false };
 
@@ -318,75 +425,7 @@ const processHeaderForTracking = (header: string, parts: RequestParts): void => 
 const LAST_HEADER = Buffer.from("\r\n");
 const CONNECTED_TO_REGEX = /^Connected to/;
 
-const addDebugHandler = (handle: Easy, parts: RequestParts): void => {
 
-  const { infos } = parts;
-
-  handle.setOpt(Curl.option.DEBUGFUNCTION, (infoType, content) => {
-
-    const nowNanos = Number(process.hrtime.bigint());
-    const nowEpoch = Date.now();
-
-    switch (infoType) {
-
-      case CurlInfoDebug.Text: {
-
-        const message = content.toString().trim();
-
-        // time tracking
-        // is this a good way? probably not, but, most accurate way I've seen so far... 
-
-        if (parts.timing.initEpoch === undefined) {
-          parts.timing.initEpoch = nowEpoch;
-          parts.timing.initNano = nowNanos;
-        }
-
-        if (parts.timing.connectedNano === undefined && CONNECTED_TO_REGEX.test(message)) {
-          parts.timing.connectedNano = nowNanos;
-        }
-
-        infos.push({ epoch: nowEpoch, message });
-        break;
-      }
-
-      case CurlInfoDebug.HeaderIn: {
-
-        // time tracking
-        parts.timing.lastResponseHeaderNano = nowNanos;
-
-        if (parts.timing.firstResponseHeaderNano === undefined) {
-          parts.timing.firstResponseHeaderNano = nowNanos;
-        }
-
-        // response header tracking
-
-        if (content.length === 2 && LAST_HEADER.equals(content)) {
-          // last header, do nothing
-        } else {
-          bufToHeaderLines(content).forEach(header => processHeaderForTracking(header, parts));
-        }
-        break;
-      }
-
-      case CurlInfoDebug.HeaderOut: {
-
-        // time tracking
-        parts.timing.lastRequestHeaderNano = nowNanos;
-
-        if (parts.timing.firstRequestHeaderNano === undefined) {
-          parts.timing.firstRequestHeaderNano = nowNanos;
-        }
-
-        break;
-      }
-    }
-
-    // this must return 0, the TypeScript type sig is wrong (says void)
-    // TODO: update to a newer libcurl once is https://github.com/JCMais/node-libcurl/pull/202 in a stable build
-    // see https://curl.haxx.se/libcurl/c/CURLOPT_DEBUGFUNCTION.html
-    return 0;
-  });
-};
 
 const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
   if (options.method === "POST") {
@@ -403,30 +442,6 @@ const setRequestMethod = (handle: Easy, options: ExecuteOptions): void => {
   }
 };
 
-const addRequestEntity = (handle: Easy, parts: RequestParts): void => {
-  if (parts.options.requestEntity instanceof Buffer) {
-    return addRequestBufferEntity(handle, parts);
-    // tslint:disable-next-line:no-else-after-return
-  } else if (parts.options.requestEntity instanceof Readable) {
-    return addRequestStreamEntity(handle, parts);
-  } else {
-    // no request entity
-    if (parts.options.method === "POST" || parts.options.method === "PUT") {
-      handle.setOpt(Curl.option.READFUNCTION, (data, size, nitems) => {
-
-        // time tracking
-
-        const nowNanos = Number(process.hrtime.bigint());
-        const nowEpoch = Date.now();
-
-        parts.timing.endRequestEntityNano = nowNanos;
-        parts.timing.startRequestEntityNano = nowNanos;
-
-        return 0;
-      });
-    }
-  }
-};
 
 const addRequestBufferEntity = (handle: Easy, parts: RequestParts): void => {
   if (parts.options.requestEntity instanceof Buffer) {

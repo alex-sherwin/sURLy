@@ -11,11 +11,12 @@ import { log } from './log';
 
 let win: BrowserWindow | null;
 
-const x = _trimStart("  asfa");
+const x = _trimStart("  asfa ");
 
-console.log(process.versions);
+// console.log(process.versions);
 
 const installExtensions = async () => {
+  log.error("installExtensions");
   const installer = require('electron-devtools-installer');
   const forceDownload = !!process.env.UPGRADE_EXTENSIONS;
   const extensions = ['REACT_DEVELOPER_TOOLS', 'REDUX_DEVTOOLS'];
@@ -34,10 +35,10 @@ const createWindow = async () => {
     width: 800,
     height: 600,
     webPreferences: {
-      nodeIntegration: true,
-      nodeIntegrationInWorker: true,
-      nodeIntegrationInSubFrames: true,
-      plugins: true,
+      nodeIntegration: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      plugins: false,
       webSecurity: false,
     },
   });
@@ -79,57 +80,68 @@ app.on('activate', () => {
   }
 });
 
-
 const run = async () => {
-  // const webserver1 = await startWebserver(9990);
+  for (let i = 0; i < 100; i++) {
+    await run2();
+  }
+};
 
-  const client = new CurlClient({
-    maxConnectionsPerHost: 2,
-  });
+const run2 = async () => {
+  // const webserver1 = await startWebserver(9990);
+  const holder = {
+    client: new CurlClient({
+      maxConnectionsPerHost: 2,
+    })
+  };
 
   try {
 
-    log.error("before 1");
+    // log.error("before 1");
 
     // let responseEntity = fs.createWriteStream("/Users/asherwin/Desktop/out", {
     //   highWaterMark: 128 * 1024,
     // });
 
-    const p1 = await doGET(client);
+    const p1 = await doGET(holder.client);
 
-    log.error("after 1 wait");
+    // log.error("after 1 wait");
 
     // responseEntity = fs.createWriteStream("/Users/asherwin/Desktop/out", {
     //   highWaterMark: 128 * 1024,
     // });
 
-  
+
     const promises: Promise<ExecuteResult>[] = [];
 
-    log.error("before bulk");
-    for (let i = 0; i < 100; i++) {
-      promises.push(doGET(client));
+    // log.error("before bulk");
+    for (let i = 0; i < 1000; i++) {
+      promises.push(doGET(holder.client));
     }
 
     const results = await Promise.all(promises);
-    log.error("after bulk");
+    // log.error("after bulk");
 
-    console.log(JSON.stringify(results[95], null, 2));
+    // console.log(JSON.stringify(results[95], null, 2));
 
+    let z = 0;
     for (const result of results) {
 
-      const elapsedInitMillis = (result.timing.endNano - result.timing.initNano) / 1000000;
-      const elapsedRequestMillis = (result.timing.endNano - result.timing.connectedNano) / 1000000;
-      console.log(`${new Date().toISOString()} - elapsed total=${elapsedInitMillis}ms request=${elapsedRequestMillis}`);
+      if (z++ % 50 === 0) {
+
+        const elapsedInitMillis = (result.timing.endNano - result.timing.initNano) / 1000000;
+        const elapsedRequestMillis = (result.timing.endNano - result.timing.connectedNano) / 1000000;
+        console.log(`${new Date().toISOString()} - elapsed total=${elapsedInitMillis}ms request=${elapsedRequestMillis}`);
+      }
     }
 
   } catch (e) {
     console.log(e);
   } finally {
-    log.debug("closing curl client");
-    client.close();
+    // log.debug("closing curl client");
+    holder.client.close();
+    delete holder.client;
   }
-  console.log(new Date().toISOString() + "- done waiting");
+  // console.log(new Date().toISOString() + "- done waiting");
   // stopWebserver(webserver1);
 };
 
@@ -148,7 +160,12 @@ const doGET = (client: CurlClient): Promise<ExecuteResult> => {
 
 };
 
+// setInterval(() => {
+//   log.warn(` interval thingy `);
+// }, 100);
+
 run();
+
 
 // run main modules
 

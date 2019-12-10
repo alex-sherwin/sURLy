@@ -1,5 +1,5 @@
 registry=https://nexus.cape.codes/repository/npm-group/
-#runtime = electron
-#target = 6.0.0
-#target_arch = x64
-#dist_url = https://atom.io/download/atom-shell
+runtime = electron
+target = 7.1.0
+target_arch = x64
+dist_url = https://atom.io/download/atom-shell

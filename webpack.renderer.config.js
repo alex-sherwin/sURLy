@@ -1,3 +1,4 @@
+const path = require('path');
 const webpack = require('webpack');
 const merge = require('webpack-merge');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
@@ -7,41 +8,19 @@ const MiniCssExtractPlugin = require("mini-css-extract-plugin");
 
 const baseConfig = require('./webpack.base.config');
 
-const USE_SOURCE_MAPS = true;
+const USE_SOURCE_MAPS = process.env.NODE_ENV !== "production";
 
 module.exports = merge.smart(baseConfig, {
   target: 'electron-renderer',
   entry: {
-    app: ['@babel/polyfill', './src/renderer/renderer.tsx']
+    // app: ['@babel/polyfill', './src/renderer/renderer.tsx']
+    app: [path.join(__dirname, 'src', 'renderer', 'renderer.tsx')],
   },
   watchOptions: {
     ignored: /node_modules/
   },
   module: {
     rules: [
-      {
-        test: /\.(ts|tsx)$/,
-        use: [
-          {
-            loader: "cache-loader"
-          },
-          {
-            loader: 'babel-loader',
-            options:  {
-              cacheDirectory: true,
-              cacheCompression: false,
-            }
-          },
-          {
-            loader: "ts-loader",
-            options: {
-              happyPackMode: true // IMPORTANT! use happyPackMode mode to speed-up compilation and reduce errors reported to webpack
-              // https://github.com/TypeStrong/ts-loader#allowtsinnodemodules-boolean-defaultfalse
-              // allowTsInNodeModules: true, // IMPORTANT, by default .ts/.tsx sources in node_modules/ are ignored
-            }
-          },
-        ],
-      },
       {
         test: /\.(css|scss)$/,
         use: [
@@ -63,7 +42,7 @@ module.exports = merge.smart(baseConfig, {
             options: {
               plugins: [
                 require("autoprefixer"), // CSS vendor prefixing determined be .browserslistrc
-                // ...(IS_PRODUCTION ? [require("cssnano")] : []), // CSS minifier in production mode only
+                ...(USE_SOURCE_MAPS ? [] : [require("cssnano")]), // CSS minifier in production mode only
               ],
               sourceMap: USE_SOURCE_MAPS,
             }
@@ -79,6 +58,7 @@ module.exports = merge.smart(baseConfig, {
 
         ],
       },
+
       {
         test: /\.(gif|png|jpe?g|svg)$/,
         use: [
@@ -101,6 +81,26 @@ module.exports = merge.smart(baseConfig, {
         }
       },
 
+      {
+        test: /\.(ts|tsx)$/,
+        exclude: /node_modules/,
+        loader: 'babel-loader',
+        options: {
+          configFile: path.join(__dirname, "babel.config.renderer.js"),
+        }
+      },
+
+      {
+        test: /\.(ts|tsx)$/,
+        exclude: /node_modules/,
+        loader: "ts-loader",
+        options: {
+          happyPackMode: true // IMPORTANT! use happyPackMode mode to speed-up compilation and reduce errors reported to webpack
+          // https://github.com/TypeStrong/ts-loader#allowtsinnodemodules-boolean-defaultfalse
+          // allowTsInNodeModules: true, // IMPORTANT, by default .ts/.tsx sources in node_modules/ are ignored
+        }
+      },
+
       // All output '.js' files will have any sourcemaps re-processed by 'source-map-loader'.
       {
         enforce: 'pre',
@@ -114,13 +114,12 @@ module.exports = merge.smart(baseConfig, {
     // counterpart to the MiniCss loader
     // override defaults to provide stable filenames based on a hash of the chunk contents (improves caching for end-users)
     new MiniCssExtractPlugin({
-      filename: "[name].[chunkhash].css",
-      chunkFilename: "[name].[chunkhash].bundle.css",
+      filename: "[name].css",
+      chunkFilename: "[name].bundle.css",
     }),
     new MonacoWebpackPlugin({
       languages: ["html", "json", "xml"],
       features: ["clipboard", "coreCommands", "cursorUndo", "find", "inPlaceReplace"],
-
     }),
     // Ignore require() calls in vs/language/typescript/lib/typescriptServices.js
     new webpack.IgnorePlugin(
@@ -128,11 +127,15 @@ module.exports = merge.smart(baseConfig, {
       /vs(\/|\\)language(\/|\\)typescript(\/|\\)lib/
     ),
     new ForkTsCheckerWebpackPlugin({
-      reportFiles: ['src/renderer/**/*', 'src/shared/**/*'],
       checkSyntacticErrors: true,
+      tsconfig: path.join(__dirname, "tsconfig.json"),
+      reportFiles: ['src/renderer/**/*', 'src/shared/**/*'],
     }),
+
     new webpack.NamedModulesPlugin(),
+
     new HtmlWebpackPlugin(),
+
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
     })

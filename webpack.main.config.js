@@ -2,93 +2,81 @@ const path = require('path');
 const webpack = require('webpack');
 const merge = require('webpack-merge');
 const ForkTsCheckerWebpackPlugin = require('fork-ts-checker-webpack-plugin');
+const CopyPlugin = require('copy-webpack-plugin');
 
 const baseConfig = require('./webpack.base.config');
 
 module.exports = merge.smart(baseConfig, {
   target: 'electron-main',
   entry: {
-    main: './src/main/main.ts'
+    main: [path.join(__dirname, 'src', 'main', 'main.ts')],
   },
-  // externals: [
-  //   function (context, request, callback) {
-  //     // console.log(context);
-  //     if (/node-libcurl\/dist/.test(context) && /package\.json/.test(request)) {
-  //       console.log("** HIT node-libcurl!");
-  //       console.log(typeof context);
-  //       console.log(typeof request);
-  //       console.log(arguments);
-        
-  //       return callback(null, 'require("../../package22.json")');
-  //     }
-  //     if (/node-pre-gyp\/lib/.test(context) && /package\.json/.test(request)) {
-  //       console.log("** HIT node-pre-gyp!");
-  //       return callback(null, 'require("../../package22.json")');
-  //     }
-  //     // console.log(`ctx=${context} request=${request}`);
-  //     callback();
-  //   }
-  // ],
-  // externals: {
-  // "node-libcurl": 'require("node-libcurl")',
-  // "node-pre-gyp": 'require("node-pre-gyp")'
-  // "node-libcurl": "node-libcurl",
-  // "./package.json": 'require("FIXME")'
-  // },
+  output: {
+    devtoolModuleFilenameTemplate: function (info) {
+      // return "file:///" + info.absoluteResourcePath;
+      return 'file://' + path.resolve(info.absoluteResourcePath)
+    }
+  },
+  watchOptions: {
+    ignored: /node_modules/
+  },
+  externals: {
+    "../lib/binding/node_libcurl.node": 'require("./native_modules/lib/binding/node_libcurl.node")'
+  },
   module: {
     rules: [
+      // {
+      //   test: /\.node$/,
+      //   use: 'node-loader',
+      // },
+      // {
+      //   test: /\.node$/,
+      //   parser: { amd: false },
+      //   use: {
+      //     loader: '@zeit/webpack-asset-relocator-loader',
+      //     options: {
+      //       outputAssetBase: 'native_modules',
+      //     },
+      //   },
+      // },
+
       {
-        test: /\.node$/,
-        use: 'node-loader',
-      },
-      {
-        // test: /\.(m?js|node)$/,
-        test: /\.node$/,
-        parser: { amd: false },
-        use: {
-          loader: '@zeit/webpack-asset-relocator-loader',
-          options: {
-            outputAssetBase: 'native_modules',
-          },
-        },
-      },
-      {
-        test: /\.tsx?$/,
+        test: /\.ts$/,
         exclude: /node_modules/,
         loader: 'babel-loader',
         options: {
-          cacheDirectory: true,
-          babelrc: false,
-          presets: [
-            [
-              '@babel/preset-env',
-              { targets: 'maintained node versions' }
-            ],
-            '@babel/preset-typescript'
-          ],
-          plugins: [
-            ['@babel/plugin-proposal-class-properties', { loose: true }]
-          ]
+          configFile: path.join(__dirname, "babel.config.main.js"),
         }
       },
+
       {
-        test: /\.tsx?$/,
+        test: /\.ts$/,
         exclude: /node_modules/,
-        loader: 'ts-loader'
+        loader: "ts-loader",
+        options: {
+          happyPackMode: true // IMPORTANT! use happyPackMode mode to speed-up compilation and reduce errors reported to webpack
+          // https://github.com/TypeStrong/ts-loader#allowtsinnodemodules-boolean-defaultfalse
+          // allowTsInNodeModules: true, // IMPORTANT, by default .ts/.tsx sources in node_modules/ are ignored
+        }
       },
+
     ]
   },
   plugins: [
-    // new ForkTsCheckerWebpackPlugin({
-    //   reportFiles: ['src/main/**/*', 'src/shared/**/*'],
-    //   checkSyntacticErrors: true,
-    // }),
+    new CopyPlugin([{
+      from: 'node_modules/@capecodes/node-libcurl/lib/binding/node_libcurl.node',
+      to: 'native_modules/lib/binding/node_libcurl.node',
+    }]),
+    new ForkTsCheckerWebpackPlugin({
+      checkSyntacticErrors: true,
+      tsconfig: path.join(__dirname, "tsconfig.json"),
+      reportFiles: ['src/main/**/*', 'src/shared/**/*'],
+    }),
     new webpack.DefinePlugin({
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development')
     }),
     new webpack.NormalModuleReplacementPlugin(
       /\.\/src\/main\/package\.json/,
-      'FIXME.json'
     ),
   ]
 });
