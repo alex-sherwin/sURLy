@@ -16,7 +16,6 @@ const x = _trimStart("  asfa ");
 // console.log(process.versions);
 
 const installExtensions = async () => {
-  log.error("installExtensions");
   const installer = require('electron-devtools-installer');
   const forceDownload = !!process.env.UPGRADE_EXTENSIONS;
   const extensions = ['REACT_DEVELOPER_TOOLS', 'REDUX_DEVTOOLS'];
@@ -35,7 +34,7 @@ const createWindow = async () => {
     width: 800,
     height: 600,
     webPreferences: {
-      nodeIntegration: false,
+      nodeIntegration: true,
       nodeIntegrationInWorker: false,
       nodeIntegrationInSubFrames: false,
       plugins: false,
@@ -59,7 +58,7 @@ const createWindow = async () => {
   if (process.env.NODE_ENV !== 'production') {
     // Open DevTools, see https://github.com/electron/electron/issues/12438 for why we wait for dom-ready
     win.webContents.once('dom-ready', () => {
-      win!.webContents.openDevTools();
+      // win!.webContents.openDevTools();
     });
   }
 
@@ -81,7 +80,7 @@ app.on('activate', () => {
 });
 
 const run = async () => {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 10; i++) {
     await run2();
   }
 };
@@ -90,7 +89,7 @@ const run2 = async () => {
   // const webserver1 = await startWebserver(9990);
   const holder = {
     client: new CurlClient({
-      maxConnectionsPerHost: 2,
+      maxConnectionsPerHost: 4,
     })
   };
 
@@ -114,7 +113,7 @@ const run2 = async () => {
     const promises: Promise<ExecuteResult>[] = [];
 
     // log.error("before bulk");
-    for (let i = 0; i < 1000; i++) {
+    for (let i = 0; i < 10; i++) {
       promises.push(doGET(holder.client));
     }
 
@@ -162,9 +161,9 @@ const doGET = (client: CurlClient): Promise<ExecuteResult> => {
 
 // setInterval(() => {
 //   log.warn(` interval thingy `);
-// }, 100);
+// }, 1000);
 
-run();
+// run();
 
 
 // run main modules
