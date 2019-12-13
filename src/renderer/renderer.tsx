@@ -12,7 +12,7 @@ document.body.appendChild(mainElement);
 
 ReactDOM.render(
   <AppContainer>
-    <div>hello world3</div>
+    <div>hello world 7</div>
   </AppContainer>,
   mainElement
 );
