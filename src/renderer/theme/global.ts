@@ -6,4 +6,14 @@ export const GlobalStyles = createGlobalStyle`
     font-family: ${p => p.theme.fontFamily};
     font-size: ${p => p.theme.fontSize};
   }
+  html, body {
+    overflow: hidden;
+  }
+  .approot {
+    width: 100vw;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
 `;

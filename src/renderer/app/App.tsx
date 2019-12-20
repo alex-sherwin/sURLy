@@ -24,7 +24,7 @@ export const App: FC = () => {
 
   return (
     <ThirdPartyHoCs>
-      <div><MyButton variant="outlined" color="primary" onClick={onClick}>Hi</MyButton></div>
+      <div className="app"><MyButton variant="outlined" color="primary" onClick={onClick}>Hi</MyButton></div>
     </ThirdPartyHoCs>
   );
 };
