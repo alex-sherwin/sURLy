@@ -1,12 +1,10 @@
-'use strict';
-
 // third party
 import { Curl, CurlPause, CurlCode, Easy, Multi, CurlInfoDebug, CurlReadFunc, CurlWriteFunc } from "@capecodes/node-libcurl";
 import { Readable } from "stream";
 import _trimEnd from "lodash/trimEnd";
 
 // local
-import { createFlatPromise, FlatPromise } from "../../shared/FlatPromise";
+import { createFlatPromise } from "../../shared/FlatPromise";
 import { log } from "../log";
 
 // really local
