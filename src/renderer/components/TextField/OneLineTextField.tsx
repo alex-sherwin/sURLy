@@ -25,6 +25,8 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     setEditor(editor);
     // disable find
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function() {});
+
+    // poor mans cursorWordPartLeft behavior (vscode behavior for subword cursor navigation)
     editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, function() {
       console.log("HERE!");
 
@@ -32,7 +34,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         lineNumber: 1,
         column: 2
       });
-      
+
       // cursorWordPartLeft
       // editor!.executeCommand("", {
       //   computeCursorState: (model, helper) => {
