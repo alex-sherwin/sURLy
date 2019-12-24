@@ -24,33 +24,63 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
     setEditor(editor);
     // disable find
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function() {});
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
     // poor mans cursorWordPartLeft behavior (vscode behavior for subword cursor navigation)
-    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, function() {
-      console.log("HERE!");
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
 
-      editor!.setPosition({
-        lineNumber: 1,
-        column: 2
-      });
+      const position = editor?.getPosition();
+      if (editor && position) {
+        const relevantValue = editor.getModel()?.getValueInRange({
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+          startColumn: 0,
+        });
 
-      // cursorWordPartLeft
-      // editor!.executeCommand("", {
-      //   computeCursorState: (model, helper) => {
-      //     editor
-      //   },
-      //   getEditOperations: (model, builder) => {
+        if (relevantValue) {
 
-      //   },
-      // });
+          const nextIndex = getNextLeftWordPartIndex(0, relevantValue);
+
+          editor!.setPosition({
+            lineNumber: position.lineNumber,
+            column: nextIndex
+          });
+        }
+      }
+
     });
+
+    // poor mans cursorWordPartRight behavior (vscode behavior for subword cursor navigation)
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
+
+      const position = editor?.getPosition();
+      if (editor && position) {
+        const relevantValue = editor.getModel()?.getValueInRange({
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          endColumn: Number.MAX_SAFE_INTEGER,
+          startColumn: position.column,
+        });
+
+        if (relevantValue) {
+          const nextIndex = getNextRightWordPartIndex(position.column, relevantValue);
+
+          editor!.setPosition({
+            lineNumber: position.lineNumber,
+            column: nextIndex
+          });
+        }
+      }
+
+    });
+
   };
 
   return (
     <MonacoEditor
       height="16px"
-      defaultValue={"woohoo"}
+      defaultValue="http://localhost.com:8080/some-thing/_herewego?value=abc%20123"
       editorDidMount={onDidMount}
       onChange={onChange}
       options={{
@@ -89,4 +119,107 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     />
   );
+};
+
+const ALPHANUM_WORD_PARTS = /[a-z0-9]/i;
+
+type WordMode = "none" | "alphanum" | "special";
+
+interface WordPart {
+  _type: "alphanum" | "special";
+  value: string;
+  start: number;
+  end: number;
+}
+
+const splitOnWordParts = (str: string): WordPart[] => {
+
+  const parts: WordPart[] = [];
+
+  // let currentPart: string = "";
+  let currentPartStart = 0;
+  let mode: WordMode = "none";
+
+  for (let i = 0; i < str.length; i++) {
+
+    const char = str[i];
+
+    if (ALPHANUM_WORD_PARTS.test(char)) {
+      // regular char
+      if (mode === "none") {
+        // start regular word part
+        mode = "alphanum";
+        currentPartStart = i;
+      } else if (mode === "alphanum") {
+        // continue regular word part (do nothing)
+      } else if (mode === "special") {
+        // finish special word part, start a new regular word part
+        parts.push({
+          _type: "special",
+          value: str.substring(currentPartStart, i),
+          start: currentPartStart,
+          end: i,
+        });
+        mode = "alphanum";
+        currentPartStart = i;
+      }
+    } else {
+      // special char
+      if (mode === "none") {
+        // start special word part
+        mode = "special";
+        currentPartStart = i;
+      } else if (mode === "special") {
+        // continue special word part (do nothing)
+      } else if (mode === "alphanum") {
+        // finish regular word part, start a new special word part
+        parts.push({
+          _type: "alphanum",
+          value: str.substring(currentPartStart, i),
+          start: currentPartStart,
+          end: i,
+        });
+        mode = "special";
+        currentPartStart = i;
+      }
+    }
+
+  }
+
+  // last part
+  if (mode === "alphanum") {
+    parts.push({
+      _type: "alphanum",
+      value: str.substring(currentPartStart, str.length),
+      start: currentPartStart,
+      end: str.length,
+    });
+  } else if (mode === "special") {
+    parts.push({
+      _type: "special",
+      value: str.substring(currentPartStart, str.length),
+      start: currentPartStart,
+      end: str.length,
+    });
+  }
+
+  return parts;
+};
+
+const getNextLeftWordPartIndex = (offset: number, str: string): number => {
+  const parts = splitOnWordParts(str);
+  const nextPart = parts[parts.length - 1];
+  return offset + (nextPart.start) + 1;
+};
+
+const getNextRightWordPartIndex = (offset: number, str: string): number => {
+  const parts = splitOnWordParts(str);
+  let nextPart = parts[0];
+  if (nextPart.end - nextPart.start === 1) {
+    // only 1 char, advance to next if possible
+    if (parts.length > 1) {
+      nextPart = parts[1];
+    }
+  }
+  return offset + nextPart.end - 1;
 };
