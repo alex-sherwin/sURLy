@@ -11504,6 +11504,16 @@ typedarray@^0.0.6:
   resolved "https://nexus.cape.codes/repository/npm-group/typedarray/-/typedarray-0.0.6.tgz#867ac74e3864187b1d3d47d996a78ec5c8830777"
   integrity sha1-hnrHTjhkGHsdPUfZlqeOxciDB3c=
 
+typeface-anonymous-pro@0.0.72:
+  version "0.0.72"
+  resolved "https://nexus.cape.codes/repository/npm-group/typeface-anonymous-pro/-/typeface-anonymous-pro-0.0.72.tgz#0b443a054175cb3051551a213ad2b91b3151da22"
+  integrity sha512-Ty0ZI62S4OQq8R4vCdj7miYKTNqByQi3oYB6vf817k7tsBnxBsTw6NYxsKj9nZdOfeb1uu6fwmT4xK0P0gjazg==
+
+typeface-inconsolata@0.0.72:
+  version "0.0.72"
+  resolved "https://nexus.cape.codes/repository/npm-group/typeface-inconsolata/-/typeface-inconsolata-0.0.72.tgz#6b5c92132c7d3e83f7a17025087d8d717ada63d5"
+  integrity sha512-ITFhcI2ANWmSEPVgQgPJHh6RyiCf1pnkRXj1VxjsxfSwRrXFGgGITRJV+HxW7kTRDx+3/6RReT2/SWsMPqJaTA==
+
 typeface-roboto-mono@0.0.75:
   version "0.0.75"
   resolved "https://nexus.cape.codes/repository/npm-group/typeface-roboto-mono/-/typeface-roboto-mono-0.0.75.tgz#00c4543662066a837c014c251ee5140fb66a5ad8"
@@ -11513,6 +11523,11 @@ typeface-roboto@0.0.75:
   version "0.0.75"
   resolved "https://nexus.cape.codes/repository/npm-group/typeface-roboto/-/typeface-roboto-0.0.75.tgz#98d5ba35ec234bbc7172374c8297277099cc712b"
   integrity sha512-VrR/IiH00Z1tFP4vDGfwZ1esNqTiDMchBEXYY9kilT6wRGgFoCAlgkEUMHb1E3mB0FsfZhv756IF0+R+SFPfdg==
+
+typeface-source-code-pro@0.0.71:
+  version "0.0.71"
+  resolved "https://nexus.cape.codes/repository/npm-group/typeface-source-code-pro/-/typeface-source-code-pro-0.0.71.tgz#30994f73aed203feb7d616937349bccf656c45a5"
+  integrity sha512-lBpRNuC/wLFVjeFpH1qAby5iTG1jggQFBGteB+kDlMDAlpfguGPj8X0ObXK8xKiAl98+WkGbkumc14AckHr0mQ==
 
 typescript@3.7.3:
   version "3.7.3"

@@ -205,12 +205,12 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
   return (
     <MonacoEditor
-      height="24px"
+      height="28px"
       defaultValue="http://localhost.com:8080/some-thing/_herewego?value=abc%20123"
       editorDidMount={onDidMount}
       onChange={onChange}
       options={{
-        lineHeight: 24,
+        lineHeight: 28,
         automaticLayout: true,
         minimap: { enabled: false },
         lineNumbers: "off",
@@ -237,8 +237,8 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         overviewRulerBorder: false,
         overviewRulerLanes: 0,
         quickSuggestions: false,
-        fontFamily: "Roboto Mono",
-        fontSize: 18,
+        fontFamily: "Source Code Pro",
+        fontSize: 20,
         fontWeight: "300",
         tabCompletion: "off",
         useTabStops: false,
