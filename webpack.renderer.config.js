@@ -43,6 +43,7 @@ module.exports = merge.smart(baseConfig, {
               plugins: [
                 require("autoprefixer"), // CSS vendor prefixing determined be .browserslistrc
                 ...(USE_SOURCE_MAPS ? [] : [require("cssnano")]), // CSS minifier in production mode only
+                require("postcss-discard-font-face")(["woff2"])
               ],
               sourceMap: USE_SOURCE_MAPS,
             }
