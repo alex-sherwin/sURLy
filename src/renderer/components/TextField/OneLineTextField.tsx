@@ -28,6 +28,10 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     // disable find
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
+    // disable enter
+    editor.addCommand(monaco.KeyCode.Enter, function () { });
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, function () { });
+
     // poor mans cursorWordPartLeft behavior (vscode behavior for subword cursor navigation)
     editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
 
@@ -223,6 +227,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         contextmenu: false,
         copyWithSyntaxHighlighting: false,
         cursorStyle: "block",
+        // cursorStyle: "line",
         find: undefined,
         folding: false,
         scrollbar: {
@@ -336,19 +341,13 @@ const splitOnWordParts = (str: string): WordPart[] => {
 const getNextLeftWordPartIndex = (offset: number, str: string): number => {
   const parts = splitOnWordParts(str);
   const nextPart = parts[parts.length - 1];
-  return offset + (nextPart.start) + 1;
+  return offset + nextPart.start + 1;
 };
 
 const getNextRightWordPartIndex = (offset: number, str: string): number => {
   const parts = splitOnWordParts(str);
   let nextPart = parts[0];
-  if (nextPart.end - nextPart.start === 1) {
-    // only 1 char, advance to next if possible
-    if (parts.length > 1) {
-      nextPart = parts[1];
-    }
-  }
-  return offset + nextPart.end - 1;
+  return offset + nextPart.end;
 };
 
 const hasSelection = (selection: monacoEditor.Selection | null): boolean => {
