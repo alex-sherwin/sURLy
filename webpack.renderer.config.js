@@ -43,7 +43,7 @@ module.exports = merge.smart(baseConfig, {
               plugins: [
                 require("autoprefixer"), // CSS vendor prefixing determined be .browserslistrc
                 ...(USE_SOURCE_MAPS ? [] : [require("cssnano")]), // CSS minifier in production mode only
-                require("postcss-discard-font-face")(["woff2"])
+                require("postcss-discard-font-face")(["woff2"]),
               ],
               sourceMap: USE_SOURCE_MAPS,
             }
@@ -78,7 +78,8 @@ module.exports = merge.smart(baseConfig, {
         test: /\.(png|cur|eot|woff|woff2|ttf|gif|jpg|jpeg)$/,
         loader: "file-loader",
         options: {
-          name: "[name]-[hash].[ext]"
+          name: "[hash].[ext]"
+          // name: "[name]-[hash].[ext]"
         }
       },
 

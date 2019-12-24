@@ -1,0 +1,12 @@
+/* source-code-pro-300normal - latin */
+@font-face {
+  font-family: 'Source Code Pro';
+  font-style: normal;
+  font-display: block;
+  font-weight: 300;
+  src:
+    local('Source Code Pro Light '),
+    local('Source Code Pro-Light'),
+    url('~typeface-source-code-pro/files/source-code-pro-latin-300.woff2') format('woff2'), /* Super Modern Browsers */
+    url('~typeface-source-code-pro/files/source-code-pro-latin-300.woff') format('woff'); /* Modern Browsers */
+}
