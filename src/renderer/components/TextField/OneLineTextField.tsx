@@ -22,7 +22,9 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   };
 
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
+
     setEditor(editor);
+
     // disable find
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
@@ -42,7 +44,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
           const nextIndex = getNextLeftWordPartIndex(0, relevantValue);
 
-          editor!.setPosition({
+          editor.setPosition({
             lineNumber: position.lineNumber,
             column: nextIndex
           });
@@ -66,10 +68,134 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         if (relevantValue) {
           const nextIndex = getNextRightWordPartIndex(position.column, relevantValue);
 
-          editor!.setPosition({
+          editor.setPosition({
             lineNumber: position.lineNumber,
             column: nextIndex
           });
+        }
+      }
+
+    });
+
+    // poor mans cursorWordPartLeft + shift (selection) behavior (vscode behavior for subword cursor navigation)
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
+
+      const position = editor?.getPosition();
+
+      if (editor && position) {
+        const relevantValue = editor.getModel()?.getValueInRange({
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          endColumn: position.column,
+          startColumn: 0,
+        });
+
+        if (relevantValue) {
+
+          const nextIndex = getNextLeftWordPartIndex(0, relevantValue);
+
+          const currentSelection = editor.getSelection();
+
+          editor.setPosition({
+            lineNumber: position.lineNumber,
+            column: nextIndex
+          });
+
+          if (hasSelection(currentSelection)) {
+
+            // add or remove from selection?
+
+            if (currentSelection!.positionColumn === currentSelection!.startColumn) {
+              // add to selection (using IRange)
+              editor.setSelection({
+                startLineNumber: position.lineNumber,
+                endLineNumber: position.lineNumber,
+                startColumn: Math.max(currentSelection!.endColumn, currentSelection!.startColumn),
+                endColumn: nextIndex,
+              });
+            } else {
+              console.log("removing..")
+              // remove from selection (using ISelection)
+              editor.setSelection({
+                selectionStartLineNumber: position.lineNumber,
+                positionLineNumber: position.lineNumber,
+                selectionStartColumn: currentSelection!.startColumn,
+                positionColumn: nextIndex,
+              });
+            }
+
+          } else {
+            // no existing, start a new selection (using IRange)
+            editor.setSelection({
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: position.column,
+              endColumn: nextIndex,
+            });
+          }
+
+        }
+      }
+
+    });
+
+
+    // poor mans cursorWordPartRight + shift (selection) behavior (vscode behavior for subword cursor navigation)
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
+
+      const position = editor?.getPosition();
+
+      if (editor && position) {
+        const relevantValue = editor.getModel()?.getValueInRange({
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          endColumn: Number.MAX_SAFE_INTEGER,
+          startColumn: position.column,
+        });
+
+        if (relevantValue) {
+
+          const nextIndex = getNextRightWordPartIndex(position.column, relevantValue);
+
+          const currentSelection = editor.getSelection();
+
+          editor.setPosition({
+            lineNumber: position.lineNumber,
+            column: nextIndex
+          });
+
+          if (hasSelection(currentSelection)) {
+
+            // add or remove from selection?
+
+            if (currentSelection!.positionColumn === currentSelection!.endColumn) {
+              // add to selection (using IRange)
+              editor.setSelection({
+                startLineNumber: position.lineNumber,
+                endLineNumber: position.lineNumber,
+                startColumn: Math.min(currentSelection!.endColumn, currentSelection!.startColumn),
+                endColumn: nextIndex,
+              });
+            } else {
+              // remove from selection (using ISelection)
+              editor.setSelection({
+                selectionStartLineNumber: position.lineNumber,
+                positionLineNumber: position.lineNumber,
+                selectionStartColumn: currentSelection!.endColumn,
+                positionColumn: nextIndex,
+              });
+            }
+
+          } else {
+            // no existing, start a new selection (using IRange)
+            editor.setSelection({
+              startLineNumber: position.lineNumber,
+              endLineNumber: position.lineNumber,
+              startColumn: position.column,
+              endColumn: nextIndex,
+            });
+          }
+
         }
       }
 
@@ -79,12 +205,12 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
   return (
     <MonacoEditor
-      height="20px"
+      height="24px"
       defaultValue="http://localhost.com:8080/some-thing/_herewego?value=abc%20123"
       editorDidMount={onDidMount}
       onChange={onChange}
       options={{
-        lineHeight: 20,
+        lineHeight: 24,
         automaticLayout: true,
         minimap: { enabled: false },
         lineNumbers: "off",
@@ -223,4 +349,16 @@ const getNextRightWordPartIndex = (offset: number, str: string): number => {
     }
   }
   return offset + nextPart.end - 1;
+};
+
+const hasSelection = (selection: monacoEditor.Selection | null): boolean => {
+  if (selection) {
+    if (selection.startLineNumber !== selection.endLineNumber) {
+      return true; // spans rows
+    }
+    if (selection.startColumn !== selection.endColumn) {
+      return true; // spans columns
+    }
+  }
+  return false;
 };
