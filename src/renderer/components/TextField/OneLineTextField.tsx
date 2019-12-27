@@ -46,7 +46,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     // });
 
     // disable find
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
+    // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
     // disable enter
     editor.addCommand(monaco.KeyCode.Enter, function () { });
