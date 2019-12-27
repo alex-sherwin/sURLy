@@ -22,7 +22,7 @@ module.exports = merge.smart(baseConfig, {
   module: {
     rules: [
       {
-        test: /\.(css|scss)$/,
+        test: /\.(css)$/,
         use: [
 
           // creates the actual CSS file chunk(s) and refers to them in HTML <head>
@@ -43,19 +43,19 @@ module.exports = merge.smart(baseConfig, {
               plugins: [
                 require("autoprefixer"), // CSS vendor prefixing determined be .browserslistrc
                 ...(USE_SOURCE_MAPS ? [] : [require("cssnano")]), // CSS minifier in production mode only
-                require("postcss-discard-font-face")(["woff2"]),
+                // require("postcss-discard-font-face")(["woff2"]),
               ],
               sourceMap: USE_SOURCE_MAPS,
             }
           },
 
           // SASS language pre-processing loader, we need to override defaults to enable source maps when appropriate
-          {
-            loader: "sass-loader",
-            options: {
-              sourceMap: USE_SOURCE_MAPS,
-            }
-          },
+          // {
+          //   loader: "sass-loader",
+          //   options: {
+          //     sourceMap: USE_SOURCE_MAPS,
+          //   }
+          // },
 
         ],
       },
@@ -120,14 +120,85 @@ module.exports = merge.smart(baseConfig, {
       chunkFilename: "[name].bundle.css",
     }),
     new MonacoWebpackPlugin({
-      languages: ["html", "json", "xml"],
-      features: ["clipboard", "coreCommands", "cursorUndo", "find", "inPlaceReplace"],
+      // publicPath: "/",
+      languages: ["html", "json", "xml", "css", "javascript", "shell", "yaml", "markdown", "sql", "python"],
+      // features: [
+
+      //   // 'accessibilityHelp',
+      //   // 'bracketMatching',
+      //   // 'caretOperations',
+      //   // 'clipboard',
+      //   // 'codeAction',
+      //   // 'codelens',
+      //   // 'colorDetector',
+      //   // 'comment',
+      //   // 'contextmenu',
+      //   // 'coreCommands',
+      //   // 'cursorUndo',
+      //   // 'dnd',
+      //   // 'find',
+      //   // 'folding',
+      //   // 'fontZoom',
+      //   // 'format',
+      //   // 'gotoError',
+      //   // 'gotoLine',
+      //   // 'gotoSymbol',
+      //   // 'hover',
+      //   // 'inPlaceReplace',
+
+      //   // 'inspectTokens',
+      //   // 'iPadShowKeyboard',
+      //   // 'linesOperations',
+      //   // 'links',
+      //   // 'multicursor',
+      //   // 'parameterHints',
+      //   // 'quickCommand',
+      //   // 'quickOutline',
+      //   // 'referenceSearch',
+      //   // 'rename',
+
+      //   // 'smartSelect',
+      //   // 'snippets',
+      //   // 'suggest',
+      //   // 'toggleHighContrast',
+      //   // 'toggleTabFocusMode',
+      //   // 'transpose',
+      //   // 'wordHighlighter',
+      //   // 'wordOperations',
+      //   // 'wordPartOperations',
+
+
+
+
+
+
+
+      //   "clipboard",
+      //   "coreCommands",
+      //   "cursorUndo",
+      //   "find",
+      //   "inPlaceReplace",
+      //   "colorDetector",
+      //   "comment",
+      //   "contextmenu",
+      //   "folding",
+      //   "format",
+      //   "hover",
+      //   "smartSelect",
+      //   "wordHighlighter",
+      //   "wordOperations",
+      //   "wordPartOperations",
+      //   "bracketMatching",
+      //   "multicursor",
+
+
+      // ],
     }),
     // Ignore require() calls in vs/language/typescript/lib/typescriptServices.js
-    new webpack.IgnorePlugin(
-      /^((fs)|(path)|(os)|(crypto)|(source-map-support))$/,
-      /vs(\/|\\)language(\/|\\)typescript(\/|\\)lib/
-    ),
+    // new webpack.IgnorePlugin(
+    //   /^((fs)|(path)|(os)|(crypto)|(source-map-support))$/,
+    //   /vs(\/|\\)language(\/|\\)typescript(\/|\\)lib/
+    // ),
     new ForkTsCheckerWebpackPlugin({
       checkSyntacticErrors: true,
       tsconfig: path.join(__dirname, "tsconfig.json"),

@@ -9,6 +9,10 @@ export const GlobalStyles = createGlobalStyle`
   html, body {
     overflow: hidden;
   }
+  body {
+    background-color: #222224;
+    color: #0aff4b;
+  }
   .approot {
     width: 100vw;
     height: 100vh;

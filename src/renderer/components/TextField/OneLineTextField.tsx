@@ -1,7 +1,8 @@
 // third party
 import React, { FC, useState } from "react";
-import MonacoEditor from 'react-monaco-editor';
+import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
 import monacoEditor from "monaco-editor";
+import { styled } from '../../theme';
 
 export interface OneLineTextFieldProps {
 
@@ -25,6 +26,25 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     setEditor(editor);
 
+    monaco.editor.defineTheme("custom", Custom);
+    monaco.editor.setTheme("custom");
+
+
+    // setImmediate(() => {
+    //   editor.deltaDecorations([], [
+    //     {
+    //       range: { startLineNumber: 1, endLineNumber: 1, startColumn: 8, endColumn: 17 },
+    //       options: {
+    //         className: "myDecoration",
+    //         // inlineClassName: "myInlineDecoration",
+    //         inlineClassNameAffectsLetterSpacing: true,
+    //         isWholeLine: false,
+
+    //       }
+    //     }
+    //   ]);
+    // });
+
     // disable find
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
@@ -32,203 +52,35 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     editor.addCommand(monaco.KeyCode.Enter, function () { });
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, function () { });
 
-    // poor mans cursorWordPartLeft behavior (vscode behavior for subword cursor navigation)
-    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
-
-      const position = editor?.getPosition();
-      if (editor && position) {
-        const relevantValue = editor.getModel()?.getValueInRange({
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column,
-          startColumn: 0,
-        });
-
-        if (relevantValue) {
-
-          const nextIndex = getNextLeftWordPartIndex(0, relevantValue);
-
-          editor.setPosition({
-            lineNumber: position.lineNumber,
-            column: nextIndex
-          });
-        }
-      }
-
-    });
-
-    // poor mans cursorWordPartRight behavior (vscode behavior for subword cursor navigation)
-    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
-
-      const position = editor?.getPosition();
-      if (editor && position) {
-        const relevantValue = editor.getModel()?.getValueInRange({
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          endColumn: Number.MAX_SAFE_INTEGER,
-          startColumn: position.column,
-        });
-
-        if (relevantValue) {
-          const nextIndex = getNextRightWordPartIndex(position.column, relevantValue);
-
-          editor.setPosition({
-            lineNumber: position.lineNumber,
-            column: nextIndex
-          });
-        }
-      }
-
-    });
-
-    // poor mans cursorWordPartLeft + shift (selection) behavior (vscode behavior for subword cursor navigation)
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.LeftArrow, () => {
-
-      const position = editor?.getPosition();
-
-      if (editor && position) {
-        const relevantValue = editor.getModel()?.getValueInRange({
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          endColumn: position.column,
-          startColumn: 0,
-        });
-
-        if (relevantValue) {
-
-          const nextIndex = getNextLeftWordPartIndex(0, relevantValue);
-
-          const currentSelection = editor.getSelection();
-
-          editor.setPosition({
-            lineNumber: position.lineNumber,
-            column: nextIndex
-          });
-
-          if (hasSelection(currentSelection)) {
-
-            // add or remove from selection?
-
-            if (currentSelection!.positionColumn === currentSelection!.startColumn) {
-              // add to selection (using IRange)
-              editor.setSelection({
-                startLineNumber: position.lineNumber,
-                endLineNumber: position.lineNumber,
-                startColumn: Math.max(currentSelection!.endColumn, currentSelection!.startColumn),
-                endColumn: nextIndex,
-              });
-            } else {
-              console.log("removing..")
-              // remove from selection (using ISelection)
-              editor.setSelection({
-                selectionStartLineNumber: position.lineNumber,
-                positionLineNumber: position.lineNumber,
-                selectionStartColumn: currentSelection!.startColumn,
-                positionColumn: nextIndex,
-              });
-            }
-
-          } else {
-            // no existing, start a new selection (using IRange)
-            editor.setSelection({
-              startLineNumber: position.lineNumber,
-              endLineNumber: position.lineNumber,
-              startColumn: position.column,
-              endColumn: nextIndex,
-            });
-          }
-
-        }
-      }
-
-    });
-
-
-    // poor mans cursorWordPartRight + shift (selection) behavior (vscode behavior for subword cursor navigation)
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.Alt | monaco.KeyCode.RightArrow, () => {
-
-      const position = editor?.getPosition();
-
-      if (editor && position) {
-        const relevantValue = editor.getModel()?.getValueInRange({
-          startLineNumber: position.lineNumber,
-          endLineNumber: position.lineNumber,
-          endColumn: Number.MAX_SAFE_INTEGER,
-          startColumn: position.column,
-        });
-
-        if (relevantValue) {
-
-          const nextIndex = getNextRightWordPartIndex(position.column, relevantValue);
-
-          const currentSelection = editor.getSelection();
-
-          editor.setPosition({
-            lineNumber: position.lineNumber,
-            column: nextIndex
-          });
-
-          if (hasSelection(currentSelection)) {
-
-            // add or remove from selection?
-
-            if (currentSelection!.positionColumn === currentSelection!.endColumn) {
-              // add to selection (using IRange)
-              editor.setSelection({
-                startLineNumber: position.lineNumber,
-                endLineNumber: position.lineNumber,
-                startColumn: Math.min(currentSelection!.endColumn, currentSelection!.startColumn),
-                endColumn: nextIndex,
-              });
-            } else {
-              // remove from selection (using ISelection)
-              editor.setSelection({
-                selectionStartLineNumber: position.lineNumber,
-                positionLineNumber: position.lineNumber,
-                selectionStartColumn: currentSelection!.endColumn,
-                positionColumn: nextIndex,
-              });
-            }
-
-          } else {
-            // no existing, start a new selection (using IRange)
-            editor.setSelection({
-              startLineNumber: position.lineNumber,
-              endLineNumber: position.lineNumber,
-              startColumn: position.column,
-              endColumn: nextIndex,
-            });
-          }
-
-        }
-      }
-
-    });
+    // disable command pallette
+    editor.addCommand(monaco.KeyCode.F1, function () { });
 
   };
 
   return (
-    <MonacoEditor
+    <StyledMonacoEditor
       height="28px"
-      defaultValue="http://localhost.com:8080/some-thing/_herewego?value=abc%20123"
+      defaultValue="http://localhost.com:8080/http/some-thing/_herewego?value=abc%20123"
       editorDidMount={onDidMount}
       onChange={onChange}
+      language="plaintext"
       options={{
+        roundedSelection: false,
         lineHeight: 28,
         automaticLayout: true,
         minimap: { enabled: false },
         lineNumbers: "off",
         renderIndentGuides: false,
         renderLineHighlight: "none",
-        lineDecorationsWidth: "0",
+        lineDecorationsWidth: 0,
         glyphMargin: false,
         codeLens: false,
         autoSurround: "never",
         contextmenu: false,
         copyWithSyntaxHighlighting: false,
         cursorStyle: "block",
+        links: false,
         // cursorStyle: "line",
-        find: undefined,
         folding: false,
         scrollbar: {
           horizontal: "hidden",
@@ -236,7 +88,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
           verticalScrollbarSize: 0,
           horizontalScrollbarSize: 0,
         },
-        matchBrackets: false,
+        matchBrackets: "near",
         wordWrap: "off",
         hideCursorInOverviewRuler: true,
         overviewRulerBorder: false,
@@ -247,107 +99,12 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         fontWeight: "300",
         tabCompletion: "off",
         useTabStops: false,
+        selectionHighlight: true,
+        occurrencesHighlight: true,
       }}
 
     />
   );
-};
-
-const ALPHANUM_WORD_PARTS = /[a-z0-9]/i;
-
-type WordMode = "none" | "alphanum" | "special";
-
-interface WordPart {
-  _type: "alphanum" | "special";
-  value: string;
-  start: number;
-  end: number;
-}
-
-const splitOnWordParts = (str: string): WordPart[] => {
-
-  const parts: WordPart[] = [];
-
-  // let currentPart: string = "";
-  let currentPartStart = 0;
-  let mode: WordMode = "none";
-
-  for (let i = 0; i < str.length; i++) {
-
-    const char = str[i];
-
-    if (ALPHANUM_WORD_PARTS.test(char)) {
-      // regular char
-      if (mode === "none") {
-        // start regular word part
-        mode = "alphanum";
-        currentPartStart = i;
-      } else if (mode === "alphanum") {
-        // continue regular word part (do nothing)
-      } else if (mode === "special") {
-        // finish special word part, start a new regular word part
-        parts.push({
-          _type: "special",
-          value: str.substring(currentPartStart, i),
-          start: currentPartStart,
-          end: i,
-        });
-        mode = "alphanum";
-        currentPartStart = i;
-      }
-    } else {
-      // special char
-      if (mode === "none") {
-        // start special word part
-        mode = "special";
-        currentPartStart = i;
-      } else if (mode === "special") {
-        // continue special word part (do nothing)
-      } else if (mode === "alphanum") {
-        // finish regular word part, start a new special word part
-        parts.push({
-          _type: "alphanum",
-          value: str.substring(currentPartStart, i),
-          start: currentPartStart,
-          end: i,
-        });
-        mode = "special";
-        currentPartStart = i;
-      }
-    }
-
-  }
-
-  // last part
-  if (mode === "alphanum") {
-    parts.push({
-      _type: "alphanum",
-      value: str.substring(currentPartStart, str.length),
-      start: currentPartStart,
-      end: str.length,
-    });
-  } else if (mode === "special") {
-    parts.push({
-      _type: "special",
-      value: str.substring(currentPartStart, str.length),
-      start: currentPartStart,
-      end: str.length,
-    });
-  }
-
-  return parts;
-};
-
-const getNextLeftWordPartIndex = (offset: number, str: string): number => {
-  const parts = splitOnWordParts(str);
-  const nextPart = parts[parts.length - 1];
-  return offset + nextPart.start + 1;
-};
-
-const getNextRightWordPartIndex = (offset: number, str: string): number => {
-  const parts = splitOnWordParts(str);
-  let nextPart = parts[0];
-  return offset + nextPart.end;
 };
 
 const hasSelection = (selection: monacoEditor.Selection | null): boolean => {
@@ -360,4 +117,83 @@ const hasSelection = (selection: monacoEditor.Selection | null): boolean => {
     }
   }
   return false;
+};
+
+
+interface WrappedMonagoEditorProps extends MonacoEditorProps {
+  className?: string;
+}
+
+const WrappedMonacoEditor: FC<WrappedMonagoEditorProps> = (props) => {
+  const { className, options, ...rest } = props;
+  return (
+    <MonacoEditor
+      {...rest}
+      options={{
+        ...options,
+        extraEditorClassName: className,
+      }}
+    />
+  );
+};
+
+const StyledMonacoEditor = styled(WrappedMonacoEditor)`
+  .myDecoration {
+    background-color: pink;
+  }
+
+  .myInlineDecoration {
+    /* width: 20px; */
+    font-size: 16px;
+    background-color: pink;
+  }
+`;
+
+const BG_COLOR = "#222224";
+
+// const CommonColors: monacoEditor.editor.IColors = {
+//   // "editorLineNumber.foreground": theme.primaryColor,
+//   "editorGutter.background": BG_COLOR,
+// }
+
+export const Custom: monacoEditor.editor.IStandaloneThemeData = {
+  base: "vs-dark",
+  inherit: true,
+  rules: [
+    {
+      token: undefined!,
+      background: BG_COLOR,
+      foreground: "#0aff4b",
+    },
+    // { token: undefined!,  },
+    // JSON
+    // { token: "delimiter.bracket.json", foreground: theme.successColor.substr(1) }, // lop off #
+
+    // YAML
+    // { token: "operators.directivesEnd.yaml", foreground: "FF0000" },
+    // { token: "string.yaml", foreground: "009900" },
+    // { token: "number.float", foreground: "990000" },
+    // { token: "operators.yaml", foreground: "000000" },
+    // { token: "type.yaml", foreground: "000000" },
+    // { token: "keyword.yaml", foreground: "0000CC" },
+
+    // MARKDOWN
+
+  ],
+  colors: {
+    "editorGutter.background": BG_COLOR,
+
+    "editor.background": BG_COLOR,
+    "editor.foreground": "#0aff4b",
+
+    "editorCursor.background": BG_COLOR,
+    "editorCursor.foreground": "#0aff4b",
+
+    "editor.selectionBackground": "#216131",
+    "editor.selectionHighlightBackground": "#193620",
+    "editor.selectionForeground": "#000000",
+
+    "background": BG_COLOR,
+    "foreground": "#ff0000",
+  }
 };
