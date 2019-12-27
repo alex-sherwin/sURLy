@@ -8,19 +8,18 @@ export interface OneLineTextFieldProps {
 
 }
 
-const SINGLE_LINE_BLACKLIST_REGEX = /[\r\n\t]/g;
-const EMPTY_STRING = "";
-
 export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
+  const [value, setValue] = useState<string>("");
   const [editor, setEditor] = useState<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
 
   const onChange = (value: string, event: monacoEditor.editor.IModelContentChangedEvent) => {
-    const sanitized = value.replace(SINGLE_LINE_BLACKLIST_REGEX, EMPTY_STRING);
-    if (editor!.getValue() !== sanitized) {
-      editor!.setValue(sanitized);
-    }
-  };
+    setValue(value);
+    // const sanitized = value;
+    // if (editor!.getValue() !== sanitized) {
+    //   editor!.setValue(sanitized);
+    // }
+  };//
 
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
 
@@ -30,23 +29,23 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     monaco.editor.setTheme("custom");
 
 
-    // setImmediate(() => {
-    //   editor.deltaDecorations([], [
-    //     {
-    //       range: { startLineNumber: 1, endLineNumber: 1, startColumn: 8, endColumn: 17 },
-    //       options: {
-    //         className: "myDecoration",
-    //         // inlineClassName: "myInlineDecoration",
-    //         inlineClassNameAffectsLetterSpacing: true,
-    //         isWholeLine: false,
+    setImmediate(() => {
+      editor.deltaDecorations([], [
+        {
+          range: { startLineNumber: 1, endLineNumber: 1, startColumn: 8, endColumn: 17 },
+          options: {
+            className: "myDecoration",
+            inlineClassName: "myInlineDecoration",
+            inlineClassNameAffectsLetterSpacing: true,
+            isWholeLine: false,
 
-    //       }
-    //     }
-    //   ]);
-    // });
+          }
+        }
+      ]);
+    });
 
     // disable find
-    // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
     // disable enter
     editor.addCommand(monaco.KeyCode.Enter, function () { });
@@ -140,45 +139,25 @@ const WrappedMonacoEditor: FC<WrappedMonagoEditorProps> = (props) => {
 const StyledMonacoEditor = styled(WrappedMonacoEditor)`
   .myDecoration {
     background-color: pink;
+    z-index: 1;
   }
 
   .myInlineDecoration {
     /* width: 20px; */
-    font-size: 16px;
-    background-color: pink;
+    /* font-size: 16px; */
+    /* background-color: pink; */
+    position: relative;
+    z-index: 2;
   }
 `;
 
 const BG_COLOR = "#222224";
 
-// const CommonColors: monacoEditor.editor.IColors = {
-//   // "editorLineNumber.foreground": theme.primaryColor,
-//   "editorGutter.background": BG_COLOR,
-// }
-
 export const Custom: monacoEditor.editor.IStandaloneThemeData = {
   base: "vs-dark",
   inherit: true,
   rules: [
-    {
-      token: undefined!,
-      background: BG_COLOR,
-      foreground: "#0aff4b",
-    },
-    // { token: undefined!,  },
-    // JSON
-    // { token: "delimiter.bracket.json", foreground: theme.successColor.substr(1) }, // lop off #
-
-    // YAML
-    // { token: "operators.directivesEnd.yaml", foreground: "FF0000" },
-    // { token: "string.yaml", foreground: "009900" },
-    // { token: "number.float", foreground: "990000" },
-    // { token: "operators.yaml", foreground: "000000" },
-    // { token: "type.yaml", foreground: "000000" },
-    // { token: "keyword.yaml", foreground: "0000CC" },
-
-    // MARKDOWN
-
+    { token: undefined!, background: BG_COLOR, foreground: "#0aff4b" },
   ],
   colors: {
     "editorGutter.background": BG_COLOR,
