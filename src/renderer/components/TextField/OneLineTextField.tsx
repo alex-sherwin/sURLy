@@ -13,7 +13,10 @@ interface Var {
   start: number;
   end: number;
   display: string;
+  selected: boolean;
 }
+
+const NEWLINE_REGEX = /[\r\n]/g;
 
 export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
@@ -22,13 +25,18 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   const lastKeyCode = useRef<string | null>(null);
 
   const vars = useRef<Var[]>([
-    { lineNumber: 1, start: 7, end: 17, display: "{hostname}" },
-    { lineNumber: 1, start: 22, end: 28, display: "{port}" },
+    { lineNumber: 1, start: 7, end: 17, display: "{hostname}", selected: false },
+    { lineNumber: 1, start: 22, end: 28, display: "{port}", selected: false },
   ]);
 
   const onChange = (value: string, event: monacoEditor.editor.IModelContentChangedEvent) => {
-    // console.log("onChange");
-    editorValue.current = value;
+    if (NEWLINE_REGEX.test(value)) {
+      const sanitized = value.replace(NEWLINE_REGEX, "");
+      editorValue.current = sanitized;
+      editor!.setValue(sanitized);
+    } else {
+      editorValue.current = value;
+    }
   };
 
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
@@ -43,8 +51,8 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
       const nextDecorations: monacoEditor.editor.IModelDeltaDecoration[] = vars.current.map((it) => ({
         range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start + 1, endColumn: it.end + 1 },
         options: {
-          className: "myDecoration",
-          inlineClassName: "myInlineDecoration",
+          className: it.selected ? "myDecoration selected" : "myDecoration",
+          inlineClassName: it.selected ? "myInlineDecoration selected" : "myInlineDecoration",
           inlineClassNameAffectsLetterSpacing: true,
           isWholeLine: false,
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
@@ -149,8 +157,12 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     // });
 
+
     // disable find
-    // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
+
+    // disable select line
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_L, function () { });
 
     // disable enter
     editor.addCommand(monaco.KeyCode.Enter, function () { });
