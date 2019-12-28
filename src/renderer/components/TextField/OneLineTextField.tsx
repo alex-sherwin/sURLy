@@ -1,7 +1,7 @@
 // third party
 import React, { FC, useRef } from "react";
 import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
-import monacoEditor, { Range, Selection } from "monaco-editor";
+import monacoEditor, { Range, Selection, editor } from "monaco-editor";
 import _sortBy from "lodash/sortBy";
 
 // local
@@ -23,9 +23,27 @@ interface VarTracking {
   [keyof: string]: Var | undefined;
 }
 
+interface CustomUndoAction {
+  depth: number;
+  action: () => void;
+}
+
 const NEWLINE_REGEX = /[\r\n]/g;
 
 const EMPTY_VARS: Var[] = [];
+
+
+const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => ({
+  range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start + 1, endColumn: it.end + 1 },
+  options: {
+    className: it.selected ? "myDecoration selected" : "myDecoration",
+    inlineClassName: it.selected ? "myInlineDecoration selected" : "myInlineDecoration",
+    inlineClassNameAffectsLetterSpacing: true,
+    isWholeLine: false,
+    stickiness: 1, // 1 = TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
+    hoverMessage: { value: "# wut", isTrusted: true },
+  },
+});
 
 export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
@@ -35,12 +53,29 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   const lastKeyCode = useRef<string | null>(null);
   const varTracking = useRef<VarTracking>({});
   const varEditsPending = useRef<boolean>(false);
+  const customUndoDepth = useRef<number>(0);
+  const customUndoStack = useRef<CustomUndoAction[]>([]);
 
   const vars = useRef<Var[]>([
     { lineNumber: 1, start: 7, end: 17, display: "{hostname}", selected: false },
     { lineNumber: 1, start: 22, end: 28, display: "{port}", selected: false },
   ]);
 
+  const applyCustomUndoStack = () => {
+    if (!editorRef.current) {
+      return;
+    }
+    let changesApplied = false;
+    for (const action of customUndoStack.current) {
+      if (action.depth === customUndoDepth.current) {
+        changesApplied = true;
+        action.action();
+      }
+    }
+    if (changesApplied) {
+      applyEditorDecorations();
+    }
+  };
 
   const applyEditorDecorations = () => {
 
@@ -48,17 +83,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
       return;
     }
 
-    const nextDecorations: monacoEditor.editor.IModelDeltaDecoration[] = vars.current.map((it) => ({
-      range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start + 1, endColumn: it.end + 1 },
-      options: {
-        className: it.selected ? "myDecoration selected" : "myDecoration",
-        inlineClassName: it.selected ? "myInlineDecoration selected" : "myInlineDecoration",
-        inlineClassNameAffectsLetterSpacing: true,
-        isWholeLine: false,
-        stickiness: monacoRef.current!.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-        hoverMessage: { value: "# wut", isTrusted: true },
-      },
-    } as monacoEditor.editor.IModelDeltaDecoration));
+    const nextDecorations: monacoEditor.editor.IModelDeltaDecoration[] = vars.current.map(varToDecoration);
 
     const result = editorRef.current.deltaDecorations(Object.keys(varTracking.current), nextDecorations);
     // const result = editorRef.current.deltaDecorations([], nextDecorations);
@@ -82,8 +107,14 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     setImmediate(applyEditorDecorations);
 
-    editor.onDidChangeModelContent((e) => {
-      // console.log("onDidChangeModelContent", e);
+    editor.onDidChangeModelContent(e => {
+      if (e.isUndoing) {
+        customUndoDepth.current = customUndoDepth.current - 1;
+        applyCustomUndoStack();
+      } else if (e.isRedoing) {
+      } else {
+        customUndoDepth.current = customUndoDepth.current + 1;
+      }
     });
 
     editor.onKeyDown((e) => {
@@ -179,7 +210,6 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     // });
 
-
     // disable find
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_G, function () { });
@@ -191,6 +221,9 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     // disable select line
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_L, function () { });
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_L, function () { });
+
+    // disable delete line
+    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_K, function () { });
 
     // disable enter (only during text editor focus)
     editor.addCommand(monaco.KeyCode.Enter, function (e: any) { }, 'editorTextFocus && !suggestWidgetVisible');
@@ -254,6 +287,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
           // let inFluxEditorValue = editor.getValue();
 
           const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
+          const undoActions: CustomUndoAction[] = [];
 
           if (toDeletes.length > 0) {
 
@@ -274,50 +308,31 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
               }
 
               // modify the text model to remove the remainder of the var
-
-              // text before decoration
-              // const valueBefore = inFluxEditorValue.substring(0, decoration.range.startColumn - 1); // 0-based indexing
-
-              // // text after decoration
-              // const valueAfter = inFluxEditorValue.substring(decoration.range.endColumn - 1); // 0-based indexing
-
               edits.push({
                 text: null,
                 range: new Range(decoration.range.startLineNumber, decoration.range.startColumn, decoration.range.endLineNumber, decoration.range.endColumn),
               });
 
-              // setImmediate(() => {
-              //   editor.executeEdits(
-              //     "my-source",
-              //     [{
-              //       text: null,
-              //       range: new Range(decoration.range.startLineNumber, decoration.range.startColumn, decoration.range.endLineNumber, decoration.range.endColumn),
-              //     }],
-              //     (ops) => {
-              //       console.log("ops", ops);
-              //       return [new Selection(1, 1, 1, 2)];
-              //     }
-              //   );
-              // });
-
-
-              // inFluxEditorValue = valueBefore + valueAfter;
-
+              undoActions.push({
+                depth: customUndoDepth.current,
+                action: () => {
+                  vars.current.push(v);
+                },
+              });
             }
 
             vars.current = varsCopy;
+            customUndoStack.current = [...customUndoStack.current, ...undoActions];
           }
 
           if (hasModifications) {
-            // editor.setValue(inFluxEditorValue);
             setImmediate(() => {
               editor.executeEdits(
-                "my-source", edits,
-                (ops) => {
-                  // const nextSelections:Selection[] = 
-                  return ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn));
-                }
+                "delete-vars",
+                edits,
+                (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
               );
+              editor.pushUndoStop();
               applyEditorDecorations();
               varEditsPending.current = false;
             });
