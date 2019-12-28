@@ -1,5 +1,5 @@
 // third party
-import React, { FC, useState } from "react";
+import React, { FC, useState, useRef } from "react";
 import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
 import monacoEditor from "monaco-editor";
 import { styled } from '../../theme';
@@ -8,18 +8,28 @@ export interface OneLineTextFieldProps {
 
 }
 
+interface Var {
+  lineNumber: number;
+  start: number;
+  end: number;
+  display: string;
+}
+
 export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
-  const [value, setValue] = useState<string>("");
+  const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
   const [editor, setEditor] = useState<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
+  const lastKeyCode = useRef<string | null>(null);
+
+  const vars = useRef<Var[]>([
+    { lineNumber: 1, start: 7, end: 17, display: "{hostname}" },
+    { lineNumber: 1, start: 22, end: 28, display: "{port}" },
+  ]);
 
   const onChange = (value: string, event: monacoEditor.editor.IModelContentChangedEvent) => {
-    setValue(value);
-    // const sanitized = value;
-    // if (editor!.getValue() !== sanitized) {
-    //   editor!.setValue(sanitized);
-    // }
-  };//
+    // console.log("onChange");
+    editorValue.current = value;
+  };
 
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
 
@@ -28,24 +38,119 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     monaco.editor.defineTheme("custom", Custom);
     monaco.editor.setTheme("custom");
 
+    const applyEditorDecorations = () => {
 
-    setImmediate(() => {
-      editor.deltaDecorations([], [
-        {
-          range: { startLineNumber: 1, endLineNumber: 1, startColumn: 8, endColumn: 17 },
-          options: {
-            className: "myDecoration",
-            inlineClassName: "myInlineDecoration",
-            inlineClassNameAffectsLetterSpacing: true,
-            isWholeLine: false,
-
-          }
+      const nextDecorations: monacoEditor.editor.IModelDeltaDecoration[] = vars.current.map((it) => ({
+        range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start + 1, endColumn: it.end + 1 },
+        options: {
+          className: "myDecoration",
+          inlineClassName: "myInlineDecoration",
+          inlineClassNameAffectsLetterSpacing: true,
+          isWholeLine: false,
+          stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
         }
-      ]);
+      }));
+
+      editor.deltaDecorations([], nextDecorations);
+
+    };
+
+    setImmediate(applyEditorDecorations);
+
+    editor.onDidChangeModelContent((e) => {
+      console.log("onDidChangeModelContent", e);
+      applyEditorDecorations();
     });
 
+    editor.onKeyDown((e) => {
+      const code = e.code;
+      // console.log("onKeyDown code=" + code);
+      lastKeyCode.current = code;
+    });
+
+    editor.onDidChangeCursorPosition((e) => {
+
+      const position = e.position.column - 1; // modify to 0-based index
+      const lineNumber = e.position.lineNumber;
+
+      for (const v of vars.current) {
+
+        if (position > v.start && position < v.end) {
+
+          if (lastKeyCode.current === "ArrowLeft") {
+            // move to left side
+            editor.setPosition({
+              lineNumber,
+              column: v.start + 1, // modify to 1-based index
+            })
+          } else if (lastKeyCode.current === "ArrowRight") {
+            // move to right side
+            editor.setPosition({
+              lineNumber,
+              column: v.end + 1, // modify to 1-based index
+            })
+          } else {
+            // figure out left or right based on how close it is
+            editor.setPosition({
+              lineNumber,
+              column: 17,
+            })
+          }
+
+        }
+
+      }
+
+    });
+
+    editor.onDidChangeCursorSelection((e) => {
+      console.log(`onDidChangeCursorSelection(reason=${e.reason}, source=${e.source})`)
+      if (hasSelection(e.selection)) {
+        const selectedValue = editorValue.current.substring(Math.min(e.selection.startColumn, e.selection.endColumn) - 1, Math.max(e.selection.startColumn, e.selection.endColumn) - 1);
+        console.log(`** selection [${selectedValue}]`);
+      } else {
+        console.log(`-- no selection`);
+      }
+    });
+
+    // editor.onDidChangeCursorSelection((e) => {
+
+    //   if (!hasSelection(e.selection)) {
+    //     return;
+    //   }
+
+
+    //   if (e.selection.startColumn >= 8 && e.selection.endColumn < 17) {
+
+    //     const currentSelection = editor.getSelection()!;
+    //     if (!hasSelection(currentSelection)) {
+    //       return;
+    //     }
+
+    //     if (e.selection.endColumn < 17) {
+    //       console.log(">> extending selection right");
+    //       editor.setSelection({
+    //         startLineNumber: currentSelection.startLineNumber,
+    //         endLineNumber: currentSelection.endLineNumber,
+    //         startColumn: currentSelection.startColumn,
+    //         endColumn: 17,
+    //       });
+    //     } else if (e.selection.startColumn >= 8) {
+    //       console.log("<< extending selection left");
+    //       editor.setSelection({
+    //         startLineNumber: currentSelection.startLineNumber,
+    //         endLineNumber: currentSelection.endLineNumber,
+    //         startColumn: 8,
+    //         endColumn: currentSelection.endColumn,
+    //       });
+    //     }
+
+    //   }
+
+    // });
+
     // disable find
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
+    // editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
 
     // disable enter
     editor.addCommand(monaco.KeyCode.Enter, function () { });
@@ -58,8 +163,8 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
   return (
     <StyledMonacoEditor
-      height="28px"
-      defaultValue="http://localhost.com:8080/http/some-thing/_herewego?value=abc%20123"
+      height="30px"
+      defaultValue={editorValue.current}
       editorDidMount={onDidMount}
       onChange={onChange}
       language="plaintext"
@@ -77,9 +182,9 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         autoSurround: "never",
         contextmenu: false,
         copyWithSyntaxHighlighting: false,
-        cursorStyle: "block",
+        // cursorStyle: "block",
+        cursorStyle: "line",
         links: false,
-        // cursorStyle: "line",
         folding: false,
         scrollbar: {
           horizontal: "hidden",
@@ -100,6 +205,9 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         useTabStops: false,
         selectionHighlight: true,
         occurrencesHighlight: true,
+        // find: {
+
+        // }
       }}
 
     />
@@ -136,10 +244,16 @@ const WrappedMonacoEditor: FC<WrappedMonagoEditorProps> = (props) => {
   );
 };
 
+
+const BG_COLOR = "#222224";
+
+
 const StyledMonacoEditor = styled(WrappedMonacoEditor)`
   .myDecoration {
-    background-color: pink;
+    border-top: solid 1px #e7ed18;
+    border-bottom: solid 1px #e7ed18;
     z-index: 1;
+    background-color: #3a3b1e;
   }
 
   .myInlineDecoration {
@@ -148,10 +262,9 @@ const StyledMonacoEditor = styled(WrappedMonacoEditor)`
     /* background-color: pink; */
     position: relative;
     z-index: 2;
+    color: #e7ed18;
   }
 `;
-
-const BG_COLOR = "#222224";
 
 export const Custom: monacoEditor.editor.IStandaloneThemeData = {
   base: "vs-dark",
