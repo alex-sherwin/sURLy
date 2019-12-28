@@ -2,6 +2,9 @@
 import React, { FC, useState, useRef } from "react";
 import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
 import monacoEditor from "monaco-editor";
+import _sortBy from "lodash/sortBy";
+
+// local
 import { styled } from '../../theme';
 
 export interface OneLineTextFieldProps {
@@ -16,30 +19,30 @@ interface Var {
   selected: boolean;
 }
 
+interface VarTracking {
+  [keyof: string]: Var | undefined;
+}
+
 const NEWLINE_REGEX = /[\r\n]/g;
+
+const EMPTY_VARS: Var[] = [];
 
 export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
   const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
   const [editor, setEditor] = useState<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<typeof monacoEditor | null>(null);
   const lastKeyCode = useRef<string | null>(null);
+  const varTracking = useRef<VarTracking>({});
 
   const vars = useRef<Var[]>([
     { lineNumber: 1, start: 7, end: 17, display: "{hostname}", selected: false },
     { lineNumber: 1, start: 22, end: 28, display: "{port}", selected: false },
   ]);
 
-  const onChange = (value: string, event: monacoEditor.editor.IModelContentChangedEvent) => {
-    if (NEWLINE_REGEX.test(value)) {
-      const sanitized = value.replace(NEWLINE_REGEX, "");
-      editorValue.current = sanitized;
-      editor!.setValue(sanitized);
-    } else {
-      editorValue.current = value;
-    }
-  };
-
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
+
+    monacoRef.current = monaco;
 
     setEditor(editor);
 
@@ -56,18 +59,26 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
           inlineClassNameAffectsLetterSpacing: true,
           isWholeLine: false,
           stickiness: monaco.editor.TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges,
-        }
-      }));
+          hoverMessage: { value: "# wut", isTrusted: true },
+        },
+      } as monacoEditor.editor.IModelDeltaDecoration));
 
-      editor.deltaDecorations([], nextDecorations);
+      const result = editor.deltaDecorations(Object.keys(varTracking.current), nextDecorations);
+      const tracking: VarTracking = {};
 
+      for (let i = 0; i < result.length; i++) {
+        const id = result[i];
+        tracking[id] = vars.current[i];
+      }
+
+      console.log("setting varTracking to", JSON.stringify(tracking));
+      varTracking.current = tracking;
     };
 
     setImmediate(applyEditorDecorations);
 
     editor.onDidChangeModelContent((e) => {
       console.log("onDidChangeModelContent", e);
-      applyEditorDecorations();
     });
 
     editor.onKeyDown((e) => {
@@ -98,11 +109,17 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
               column: v.end + 1, // modify to 1-based index
             })
           } else {
-            // figure out left or right based on how close it is
+            // figure out left or right based on how close it is to the center
+
+            const totalWidth = v.end - v.start;
+            const center = Math.floor(totalWidth / 2);
+            const offset = position - v.start;
+            const column = offset >= center ? v.end + 1 : v.start + 1; // modify to 1-based index
+
             editor.setPosition({
               lineNumber,
-              column: 17,
-            })
+              column,
+            });
           }
 
         }
@@ -171,6 +188,75 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     // disable command pallette
     editor.addCommand(monaco.KeyCode.F1, function () { });
 
+    editor.onDidChangeModelDecorations(e => {
+      console.log("onDidChangeModelDecorations");
+
+      const currentDecorations = editor.getLineDecorations(1);
+
+      if (currentDecorations) {
+        for (const currentDecoration of currentDecorations) {
+          console.log("varTracking.current", JSON.stringify(varTracking.current));
+          const v = varTracking.current[currentDecoration.id];
+          if (!v) {
+            continue;
+          }
+          if (v.lineNumber !== currentDecoration.range.startLineNumber) {
+            console.log("updated line number");
+            v.lineNumber = currentDecoration.range.startLineNumber;
+          }
+          if (v.start !== currentDecoration.range.startColumn - 1) {
+            console.log("updated start col");
+            v.start = currentDecoration.range.startColumn - 1; // convert to 0-based indexing
+          }
+          if (v.end !== currentDecoration.range.endColumn - 1) {
+            console.log("updated end col");
+            v.end = currentDecoration.range.endColumn - 1; // convert to 0-based indexing
+          }
+        }
+      }
+
+      // // track changes to vars via model decoration changes
+      // const currentDecorations = editor!.getLineDecorations(1);
+
+
+    });
+
+  };
+
+  const onChange = (value: string, event: monacoEditor.editor.IModelContentChangedEvent) => {
+    console.log("onChange");
+
+    // const decorations = editor!.getLineDecorations(1);
+    // console.log("decorations", decorations);
+
+    // let sanitized = NEWLINE_REGEX.test(value) ? value.replace(NEWLINE_REGEX, "") : value;
+    // let workingVersion = applyEditsToValue(editorValue.current, value, event.changes);
+    // // strip newline & carriage returns
+    // workingVersion = NEWLINE_REGEX.test(value) ? value.replace(NEWLINE_REGEX, "") : workingVersion;
+
+    // editorValue.current = workingVersion;
+
+    // if (editor!.getValue() !== workingVersion) {
+    //   editor!.setValue(workingVersion);
+    // }
+
+
+  };
+
+  const applyEditsToValue = (prevValue: string, nextValue: string, changes: monacoEditor.editor.IModelContentChange[]): string => {
+
+    let currentValue = nextValue;
+
+    // apply changes left-to-right (vars are ordered)
+    const sortedChanges = _sortBy(_sortBy(_sortBy(changes, it => it.range.endColumn), it => it.range.startColumn), it => it.range.startLineNumber);
+    // console.log("changes", changes);
+    // console.log("sortedChanges", sortedChanges);
+
+    for (const change of sortedChanges) {
+
+    }
+
+    return currentValue;
   };
 
   return (
