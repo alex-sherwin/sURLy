@@ -3,6 +3,7 @@ import React, { FC, useRef, useEffect } from "react";
 import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
 import monacoEditor, { Range, Selection } from "monaco-editor";
 import _sortBy from "lodash/sortBy";
+import _groupBy from "lodash/groupBy";
 
 // local
 import { styled } from '../../theme';
@@ -19,12 +20,13 @@ interface Var {
   selected: boolean;
 }
 
-interface VarTracking {
-  [keyof: string]: Var | undefined;
+interface TrackedVar {
+  var: Var;
+  decorationId: string;
 }
 
 const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => ({
-  range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start + 1, endColumn: it.end + 1 },
+  range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start, endColumn: it.end },
   options: {
     className: it.selected ? "myDecoration selected" : "myDecoration",
     inlineClassName: it.selected ? "myInlineDecoration selected" : "myInlineDecoration",
@@ -39,13 +41,13 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
   const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
+  const editorVersion = useRef<number>(NaN);
   const monacoRef = useRef<typeof monacoEditor | null>(null);
   const lastKeyCode = useRef<string | null>(null);
-  const varTracking = useRef<VarTracking>({});
-
+  const trackedVars = useRef<TrackedVar[]>([]);
   const vars = useRef<Var[]>([
-    { lineNumber: 1, start: 7, end: 17, display: "{hostname}", selected: false },
-    { lineNumber: 1, start: 22, end: 28, display: "{port}", selected: false },
+    { lineNumber: 1, start: 8, end: 18, display: "{hostname}", selected: false },
+    { lineNumber: 1, start: 23, end: 29, display: "{port}", selected: false },
   ]);
 
   useEffect(() => { setImmediate(applyEditorDecorations) }, [editorRef.current]);
@@ -56,30 +58,79 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
       return;
     }
 
-    const x = 2;
-
     const nextDecorations: monacoEditor.editor.IModelDeltaDecoration[] = vars.current.map(varToDecoration);
 
-    const result = editorRef.current.deltaDecorations(Object.keys(varTracking.current), nextDecorations);
-    // const result = editorRef.current.deltaDecorations([], nextDecorations);
-    const tracking: VarTracking = {};
+    const lastDecorationIds = trackedVars.current.map(it => it.decorationId);
+    const result = editorRef.current.deltaDecorations(lastDecorationIds, nextDecorations);
+    console.log(`last decoration ids [${lastDecorationIds}] new [${result}]`);
 
-    for (let i = 0; i < result.length; i++) {
-      const id = result[i];
-      tracking[id] = vars.current[i];
-    }
+    const nextTrackedVars: TrackedVar[] = vars.current
+      .map((it, idx) => ({ var: it, decorationId: result[idx] }));
 
-    varTracking.current = tracking;
+    trackedVars.current = nextTrackedVars;
   };
 
-  const onDidChangeModelContent = (e: monacoEditor.editor.IModelContentChangedEvent) => {
-
+  const deleteVarsAndApplyDecorations = (toDeleteVars: TrackedVar[]) => {
+    console.log(`deleteTrackedVars count=${toDeleteVars.length}`);
+    for (const toDeleteVar of toDeleteVars) {
+      if (vars.current.includes(toDeleteVar.var)) {
+        vars.current.splice(vars.current.indexOf(toDeleteVar.var), 1);
+      }
+    }
+    applyEditorDecorations();
   };
 
   const onKeyDown = (e: monacoEditor.IKeyboardEvent) => {
     const code = e.code;
     // console.log("onKeyDown code=" + code);
     lastKeyCode.current = code;
+  };
+
+  const onDidChangeModelContent = (e: monacoEditor.editor.IModelContentChangedEvent) => {
+
+    console.log(`\n\nonDidChangeModelContent v=${e.versionId}`);
+    editorVersion.current = e.versionId;
+
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    if (!e.isRedoing && !e.isUndoing) {
+      // not undo/redo action, we need to check if we need to delete any vars
+      const liveDecorations = editor.getModel()!.getAllDecorations();
+      const [varsToDelete, rangesToDelete] = findVarsToDelete(liveDecorations, trackedVars.current);
+      updateVarPositions(liveDecorations, trackedVars.current);
+
+      if (varsToDelete.length > 0) {
+        // does not bump editor model version
+        deleteVarsAndApplyDecorations(varsToDelete);
+      }
+
+      if (rangesToDelete.length > 0) {
+        // issue edit operations to delete remainder of the text representing the deleted vars
+
+        const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
+
+        for (const rangeToDelete of rangesToDelete) {
+          edits.push({
+            text: null,
+            // range: new Range(rangeToDelete.startLineNumber, rangeToDelete.startColumn, rangeToDelete.endLineNumber, rangeToDelete.endColumn),
+            range: rangeToDelete,
+          });
+        }
+
+        setImmediate(() => {
+          editor.executeEdits(
+            "delete-vars",
+            edits,
+            (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
+          );
+        });
+
+      }
+    }
+
   };
 
   const onDidChangeCursorPosition = (e: monacoEditor.editor.ICursorPositionChangedEvent) => {
@@ -258,4 +309,61 @@ export const Custom: monacoEditor.editor.IStandaloneThemeData = {
     "background": BG_COLOR,
     "foreground": "#ff0000",
   }
+};
+
+const findVarsToDelete = (liveDecorations: monacoEditor.editor.IModelDecoration[], currentTrackedVars: TrackedVar[]): [TrackedVar[], Range[]] => {
+  const liveDecorationsById = _groupBy(liveDecorations, it => it.id);
+  const varsToDelete: TrackedVar[] = [...currentTrackedVars];
+  const ranges: Range[] = [];
+
+  for (const currentTrackedVar of currentTrackedVars) {
+    const decoration: monacoEditor.editor.IModelDecoration | undefined = liveDecorationsById[currentTrackedVar.decorationId][0];
+    if (!shouldVarBeDeleted(decoration, currentTrackedVar)) {
+      if (varsToDelete.includes(currentTrackedVar)) {
+        varsToDelete.splice(varsToDelete.indexOf(currentTrackedVar), 1);
+      }
+    } else {
+      ranges.push(decoration.range);
+    }
+  }
+
+  return [varsToDelete, ranges];
+};
+
+const shouldVarBeDeleted = (liveDecoration: monacoEditor.editor.IModelDecoration | undefined, trackedVar: TrackedVar): boolean => {
+  if (!liveDecoration) {
+    return true;
+  }
+  const decorationSize = liveDecoration.range.endColumn - liveDecoration.range.startColumn;
+  const varSize = trackedVar.var.end - trackedVar.var.start;
+  if (decorationSize !== varSize) {
+    return true;
+  }
+  return false;
+};
+
+const updateVarPositions = (liveDecorations: monacoEditor.editor.IModelDecoration[], currentTrackedVars: TrackedVar[]): void => {
+  const liveDecorationsById = _groupBy(liveDecorations, it => it.id);
+
+  for (const currentTrackedVar of currentTrackedVars) {
+    const decoration: monacoEditor.editor.IModelDecoration | undefined = liveDecorationsById[currentTrackedVar.decorationId][0];
+    if (shouldVarBeMoved(decoration, currentTrackedVar)) {
+      currentTrackedVar.var.start = decoration.range.startColumn;
+      currentTrackedVar.var.end = decoration.range.endColumn;
+    }
+  }
+};
+
+const shouldVarBeMoved = (liveDecoration: monacoEditor.editor.IModelDecoration | undefined, trackedVar: TrackedVar): boolean => {
+  if (!liveDecoration) {
+    return false;
+  }
+  const decorationSize = liveDecoration.range.endColumn - liveDecoration.range.startColumn;
+  const varSize = trackedVar.var.end - trackedVar.var.start;
+  if (decorationSize === varSize) {
+    if (liveDecoration.range.startColumn !== trackedVar.var.start) {
+      return true;
+    }
+  }
+  return false;
 };
