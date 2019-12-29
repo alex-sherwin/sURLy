@@ -23,9 +23,10 @@ interface VarTracking {
   [keyof: string]: Var | undefined;
 }
 
-interface CustomUndoAction {
-  depth: number;
-  action: () => void;
+interface CustomUndoRedoAction {
+  version: number;
+  undo: () => void;
+  redo: () => void;
 }
 
 const NEWLINE_REGEX = /[\r\n]/g;
@@ -53,28 +54,44 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   const lastKeyCode = useRef<string | null>(null);
   const varTracking = useRef<VarTracking>({});
   const varEditsPending = useRef<boolean>(false);
-  const customUndoDepth = useRef<number>(0);
-  const customUndoStack = useRef<CustomUndoAction[]>([]);
+  const customUndoRedoActions = useRef<CustomUndoRedoAction[]>([]);
 
   const vars = useRef<Var[]>([
     { lineNumber: 1, start: 7, end: 17, display: "{hostname}", selected: false },
     { lineNumber: 1, start: 22, end: 28, display: "{port}", selected: false },
   ]);
 
-  const applyCustomUndoStack = () => {
-    if (!editorRef.current) {
+  const applyCustomUndoRedoActions = (mode: "undo" | "redo") => {
+
+    const editor = editorRef.current;
+
+    if (!editor) {
       return;
     }
-    let changesApplied = false;
-    for (const action of customUndoStack.current) {
-      if (action.depth === customUndoDepth.current) {
-        changesApplied = true;
-        action.action();
+    const version = editor.getModel()!.getAlternativeVersionId();
+
+    let actionsToApply = customUndoRedoActions.current.filter(it => it.version === version);
+
+    if (mode === "redo") {
+      // reverse the order
+      actionsToApply = actionsToApply.reverse();
+    }
+
+    for (const action of actionsToApply) {
+      switch (mode) {
+        case "undo": {
+          action.undo();
+          break;
+        }
+        case "redo": {
+          action.redo();
+          break;
+        }
       }
     }
-    if (changesApplied) {
-      applyEditorDecorations();
-    }
+
+    applyEditorDecorations();
+
   };
 
   const applyEditorDecorations = () => {
@@ -108,13 +125,15 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     setImmediate(applyEditorDecorations);
 
     editor.onDidChangeModelContent(e => {
+
+      console.log(`onDidChangeModelContent v=${e.versionId} alt=${editor.getModel()?.getAlternativeVersionId()}`);
+
       if (e.isUndoing) {
-        customUndoDepth.current = customUndoDepth.current - 1;
-        applyCustomUndoStack();
+        applyCustomUndoRedoActions("undo");
       } else if (e.isRedoing) {
-      } else {
-        customUndoDepth.current = customUndoDepth.current + 1;
+        applyCustomUndoRedoActions("redo");
       }
+
     });
 
     editor.onKeyDown((e) => {
@@ -239,10 +258,11 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
       if (varEditsPending.current) {
         return;
       }
+
       try {
         varEditsPending.current = true;
 
-        console.log(">> start onDidChangeModelDecorations");
+        // console.log(">> start onDidChangeModelDecorations");
 
 
 
@@ -283,11 +303,12 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
             }
           }
 
-
-          // let inFluxEditorValue = editor.getValue();
-
           const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
-          const undoActions: CustomUndoAction[] = [];
+          const undoRedoActions: CustomUndoRedoAction[] = [];
+          const currentModelVersion = editorRef.current!.getModel()!.getVersionId();
+          const currentModelAltVersion = editorRef.current!.getModel()!.getAlternativeVersionId();
+
+          const alreadyProcessedVars: Var[] = [];
 
           if (toDeletes.length > 0) {
 
@@ -301,6 +322,12 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
             for (const toDelete of sortedToDeletes) {
               const { v, decoration } = toDelete;
 
+              if (alreadyProcessedVars.includes(v)) {
+                continue;
+              } else {
+                alreadyProcessedVars.push(v);
+              }
+
               // splice out the var
               const idx = varsCopy.indexOf(v);
               if (idx !== -1) {
@@ -313,16 +340,21 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
                 range: new Range(decoration.range.startLineNumber, decoration.range.startColumn, decoration.range.endLineNumber, decoration.range.endColumn),
               });
 
-              undoActions.push({
-                depth: customUndoDepth.current,
-                action: () => {
+              console.log(`adding undo action for version=${currentModelVersion} alt=${currentModelAltVersion}`);
+
+              undoRedoActions.push({
+                version: currentModelVersion - 1, // IS THIS OK?
+                undo: () => {
                   vars.current.push(v);
                 },
+                redo: () => {
+
+                }
               });
             }
 
             vars.current = varsCopy;
-            customUndoStack.current = [...customUndoStack.current, ...undoActions];
+            customUndoRedoActions.current = [...customUndoRedoActions.current, ...undoRedoActions];
           }
 
           if (hasModifications) {
@@ -347,7 +379,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         // // track changes to vars via model decoration changes
         // const currentDecorations = editor!.getLineDecorations(1);
 
-        console.log("<< end onDidChangeModelDecorations");
+        // console.log("<< end onDidChangeModelDecorations");
       } finally {
       }
 
