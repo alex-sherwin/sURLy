@@ -3,12 +3,12 @@ import React, { FC } from "react";
 
 // local
 import { styled } from "../../theme";
-import { OneLineTextField } from "../../components/TextField";
+import { OneLineTextField2 } from "../../components/TextField/OneLineTextField2";
 
 export const ShowcasePage = () => {
   return (
     <RootDiv>
-      <OneLineTextField />
+      <OneLineTextField2 />
     </RootDiv>
   )
 };
