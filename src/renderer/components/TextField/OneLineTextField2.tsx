@@ -25,6 +25,12 @@ interface TrackedVar {
   decorationId: string;
 }
 
+interface UndoRedoAction {
+  altVersion: number;
+  enter: () => void;
+  exit: () => void;
+}
+
 const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => ({
   range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start, endColumn: it.end },
   options: {
@@ -42,15 +48,21 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
   const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
   const editorVersion = useRef<number>(NaN);
+  const editorAltVersion = useRef<number>(NaN);
   const monacoRef = useRef<typeof monacoEditor | null>(null);
   const lastKeyCode = useRef<string | null>(null);
   const trackedVars = useRef<TrackedVar[]>([]);
+  const undoRedoActions = useRef<UndoRedoAction[]>([]);
   const vars = useRef<Var[]>([
     { lineNumber: 1, start: 8, end: 18, display: "{hostname}", selected: false },
     { lineNumber: 1, start: 23, end: 29, display: "{port}", selected: false },
   ]);
 
-  useEffect(() => { setImmediate(applyEditorDecorations) }, [editorRef.current]);
+  useEffect(() => {
+    setImmediate(applyEditorDecorations);
+    editorVersion.current = editorRef.current!.getModel()!.getVersionId();
+    editorAltVersion.current = editorRef.current!.getModel()!.getAlternativeVersionId();
+  }, [editorRef.current]);
 
   const applyEditorDecorations = () => {
 
@@ -88,13 +100,15 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
   const onDidChangeModelContent = (e: monacoEditor.editor.IModelContentChangedEvent) => {
 
-    console.log(`\n\nonDidChangeModelContent v=${e.versionId}`);
-    editorVersion.current = e.versionId;
-
     const editor = editorRef.current;
     if (!editor) {
       return;
     }
+
+    const nextVersionId = e.versionId;
+    const nextAltVersionId = editor.getModel()!.getAlternativeVersionId();
+
+    console.log(`\n\nonDidChangeModelContent v=${nextVersionId} alt_v=${nextAltVersionId}`);
 
     if (!e.isRedoing && !e.isUndoing) {
       // not undo/redo action, we need to check if we need to delete any vars
@@ -118,6 +132,7 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
             // range: new Range(rangeToDelete.startLineNumber, rangeToDelete.startColumn, rangeToDelete.endLineNumber, rangeToDelete.endColumn),
             range: rangeToDelete,
           });
+          console.log(`queued up delete @ v=${editorVersion.current}`);
         }
 
         setImmediate(() => {
@@ -131,6 +146,8 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
       }
     }
 
+    editorVersion.current = nextVersionId;
+    editorAltVersion.current = nextAltVersionId;
   };
 
   const onDidChangeCursorPosition = (e: monacoEditor.editor.ICursorPositionChangedEvent) => {
