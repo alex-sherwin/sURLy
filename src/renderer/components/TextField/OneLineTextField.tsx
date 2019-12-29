@@ -461,7 +461,7 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         overviewRulerLanes: 0,
         quickSuggestions: false,
         fontFamily: "Source Code Pro",
-        fontSize: 20,
+        fontSize: 18,
         fontWeight: "300",
         tabCompletion: "off",
         useTabStops: false,
@@ -512,10 +512,10 @@ const BG_COLOR = "#222224";
 
 const StyledMonacoEditor = styled(WrappedMonacoEditor)`
   .myDecoration {
-    border-top: solid 1px #e7ed18;
-    border-bottom: solid 1px #e7ed18;
+    /* border-top: solid 1px #e7ed18; */
+    /* border-bottom: solid 1px #e7ed18; */
     z-index: 1;
-    background-color: #3a3b1e;
+    /* background-color: #3a3b1e; */
   }
 
   .myInlineDecoration {
@@ -525,6 +525,12 @@ const StyledMonacoEditor = styled(WrappedMonacoEditor)`
     position: relative;
     z-index: 2;
     color: #e7ed18;
+  }
+
+  .view-lines span.mtk1 {
+    /* text-shadow: 0 0 4px #20b045, 0 0 6px #208c3c, 0 0 8px #2e362e; */
+    text-shadow: 0 0 4px #239440, 0 0 6px #227d39, 0 0 8px #2e362e;
+    filter: saturate(90%);
   }
 `;
 
