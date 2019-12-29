@@ -1,7 +1,7 @@
 // third party
 import React, { FC, useRef } from "react";
 import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
-import monacoEditor, { Range, Selection, editor } from "monaco-editor";
+import monacoEditor, { Range, Selection } from "monaco-editor";
 import _sortBy from "lodash/sortBy";
 
 // local
@@ -24,7 +24,8 @@ interface VarTracking {
 }
 
 interface CustomUndoRedoAction {
-  version: number;
+  undoVersion: number;
+  redoVersion: number;
   undo: () => void;
   redo: () => void;
 }
@@ -53,7 +54,8 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   const monacoRef = useRef<typeof monacoEditor | null>(null);
   const lastKeyCode = useRef<string | null>(null);
   const varTracking = useRef<VarTracking>({});
-  const varEditsPending = useRef<boolean>(false);
+  // const varEditsPending = useRef<boolean>(false);
+  const varsPendingDelete = useRef<Var[]>([]);
   const customUndoRedoActions = useRef<CustomUndoRedoAction[]>([]);
 
   const vars = useRef<Var[]>([
@@ -70,7 +72,10 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     }
     const version = editor.getModel()!.getAlternativeVersionId();
 
-    let actionsToApply = customUndoRedoActions.current.filter(it => it.version === version);
+    let actionsToApply = customUndoRedoActions.current
+      .filter(it => mode === "undo" ? it.undoVersion === version : it.redoVersion === version);
+
+    console.log(`applyCustomUndoRedoActions mode=${mode} v=${version} actions=${actionsToApply.length}`);
 
     if (mode === "redo") {
       // reverse the order
@@ -255,16 +260,14 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     editor.onDidChangeModelDecorations(e => {
 
-      if (varEditsPending.current) {
-        return;
-      }
+      // if (varEditsPending.current) {
+      //   return;
+      // }
 
       try {
-        varEditsPending.current = true;
+        // varEditsPending.current = true;
 
-        // console.log(">> start onDidChangeModelDecorations");
-
-
+        console.log(">> start onDidChangeModelDecorations");
 
         const currentDecorations = editor.getLineDecorations(1);
 
@@ -284,20 +287,23 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
             if (oldSize != newSize) {
               // size changed, user wants to delete the var
-              console.log(`deleting id=${currentDecoration.id}`);
-              toDeletes.push({ v, decoration: currentDecoration });
+              if (!varsPendingDelete.current.includes(v)) {
+                console.log(`deleting id=${currentDecoration.id}`);
+                varsPendingDelete.current.push(v);
+                toDeletes.push({ v, decoration: currentDecoration });
+              }
             } else {
               // check if moved, track changes
               if (v.lineNumber !== currentDecoration.range.startLineNumber) {
-                // console.log("updated line number");
+                console.log(`updated line number id=${currentDecoration.id}`);
                 v.lineNumber = currentDecoration.range.startLineNumber;
               }
               if (v.start !== currentDecoration.range.startColumn - 1) {
-                // console.log("updated start col");
+                console.log(`updated start col id=${currentDecoration.id}`);
                 v.start = currentDecoration.range.startColumn - 1; // convert to 0-based indexing
               }
               if (v.end !== currentDecoration.range.endColumn - 1) {
-                // console.log("updated end col");
+                console.log(`updated end col id=${currentDecoration.id}`);
                 v.end = currentDecoration.range.endColumn - 1; // convert to 0-based indexing
               }
             }
@@ -343,12 +349,19 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
               console.log(`adding undo action for version=${currentModelVersion} alt=${currentModelAltVersion}`);
 
               undoRedoActions.push({
-                version: currentModelVersion - 1, // IS THIS OK?
+                undoVersion: currentModelVersion - 1, // IS THIS OK?
+                redoVersion: currentModelVersion + 1, // IS THIS OK?
                 undo: () => {
-                  vars.current.push(v);
+                  if (!vars.current.includes(v)) {
+                    console.log("++ adding var...")
+                    vars.current.push(v);
+                  }
                 },
                 redo: () => {
-
+                  if (vars.current.includes(v)) {
+                    console.log("-- splicing out var...");
+                    vars.current.splice(vars.current.indexOf(v), 1);
+                  }
                 }
               });
             }
@@ -365,12 +378,20 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
                 (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
               );
               editor.pushUndoStop();
+
+              console.log("cleaning up...");
+              for (const toDelete of toDeletes) {
+                if (varsPendingDelete.current.includes(toDelete.v)) {
+                  varsPendingDelete.current.splice(varsPendingDelete.current.indexOf(toDelete.v, 1));
+                }
+              }
+
               applyEditorDecorations();
-              varEditsPending.current = false;
+              // varEditsPending.current = false;
             });
 
           } else {
-            varEditsPending.current = false;
+            // varEditsPending.current = false;
 
           }
 
@@ -512,23 +533,19 @@ const BG_COLOR = "#222224";
 
 const StyledMonacoEditor = styled(WrappedMonacoEditor)`
   .myDecoration {
+    z-index: 1;
     /* border-top: solid 1px #e7ed18; */
     /* border-bottom: solid 1px #e7ed18; */
-    z-index: 1;
     /* background-color: #3a3b1e; */
   }
 
   .myInlineDecoration {
-    /* width: 20px; */
-    /* font-size: 16px; */
-    /* background-color: pink; */
-    position: relative;
     z-index: 2;
+    position: relative;
     color: #e7ed18;
   }
 
   .view-lines span.mtk1 {
-    /* text-shadow: 0 0 4px #20b045, 0 0 6px #208c3c, 0 0 8px #2e362e; */
     text-shadow: 0 0 4px #239440, 0 0 6px #227d39, 0 0 8px #2e362e;
     filter: saturate(90%);
   }
