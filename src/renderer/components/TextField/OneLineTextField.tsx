@@ -1,123 +1,190 @@
 // third party
-import React, { FC, useRef } from "react";
+import React, { FC, useRef, useEffect, useState } from "react";
 import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
-import monacoEditor, { Range, Selection } from "monaco-editor";
+import monacoEditor, { Range, Selection, editor } from "monaco-editor";
 import _sortBy from "lodash/sortBy";
+import _groupBy from "lodash/groupBy";
+import _cloneDeep from "lodash/cloneDeep";
+import _flatten from "lodash/flatten";
 
 // local
+import { TextExpression } from "../../../shared/models/TextExpression";
+import { TextVar } from "../../../shared/models/TextVar";
 import { styled } from '../../theme';
+import { disableOneLineEditorFunctionality, textExpressionToEditorDecorations, trackTextVars } from './utils';
 
-export interface OneLineTextFieldProps {
+// really local
+import { TextFieldProps } from "./TextFieldProps";
+import { TextFieldReadyEvent } from "./TextFieldReadyEvent";
+import { TrackedTextVars } from "./TrackedTextVars";
+
+export interface OneLineTextFieldProps extends TextFieldProps {
 
 }
-
-interface Var {
-  lineNumber: number;
-  start: number;
-  end: number;
-  display: string;
-  selected: boolean;
-}
-
-interface VarTracking {
-  [keyof: string]: Var | undefined;
-}
-
-interface CustomUndoRedoAction {
-  undoVersion: number;
-  redoVersion: number;
-  undo: () => void;
-  redo: () => void;
-}
-
-const NEWLINE_REGEX = /[\r\n]/g;
-
-const EMPTY_VARS: Var[] = [];
-
-
-const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => ({
-  range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start + 1, endColumn: it.end + 1 },
-  options: {
-    className: it.selected ? "myDecoration selected" : "myDecoration",
-    inlineClassName: it.selected ? "myInlineDecoration selected" : "myInlineDecoration",
-    inlineClassNameAffectsLetterSpacing: true,
-    isWholeLine: false,
-    stickiness: 1, // 1 = TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
-    hoverMessage: { value: "# wut", isTrusted: true },
-  },
-});
 
 export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
-  const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monacoEditor | null>(null);
-  const lastKeyCode = useRef<string | null>(null);
-  const varTracking = useRef<VarTracking>({});
-  // const varEditsPending = useRef<boolean>(false);
-  const varsPendingDelete = useRef<Var[]>([]);
-  const customUndoRedoActions = useRef<CustomUndoRedoAction[]>([]);
+  const editorVersion = useRef<number>(NaN);
+  const editorAltVersion = useRef<number>(NaN);
 
-  const vars = useRef<Var[]>([
-    { lineNumber: 1, start: 7, end: 17, display: "{hostname}", selected: false },
-    { lineNumber: 1, start: 22, end: 28, display: "{port}", selected: false },
-  ]);
+  const [textExpression, setTextExpression] = useState<TextExpression>(props.initialValue);
+  const lastDecorationIds = useRef<string[]>([]);
+  const trackedTextVars = useRef<TrackedTextVars>({});
+  const previousTextVars = useRef<Map<number, TextVar[]>>(new Map());
+  const varsPendingDelete = useRef<TextVar[]>([]);
 
-  const applyCustomUndoRedoActions = (mode: "undo" | "redo") => {
+  useEffect(() => {
+    editorVersion.current = editorRef.current!.getModel()!.getVersionId();
+    editorAltVersion.current = editorRef.current!.getModel()!.getAlternativeVersionId();
+    previousTextVars.current.set(editorAltVersion.current, textExpression.vars);
+  }, [editorRef.current]);
 
-    const editor = editorRef.current;
-
-    if (!editor) {
-      return;
-    }
-    const version = editor.getModel()!.getAlternativeVersionId();
-
-    let actionsToApply = customUndoRedoActions.current
-      .filter(it => mode === "undo" ? it.undoVersion === version : it.redoVersion === version);
-
-    console.log(`applyCustomUndoRedoActions mode=${mode} v=${version} actions=${actionsToApply.length}`);
-
-    if (mode === "redo") {
-      // reverse the order
-      actionsToApply = actionsToApply.reverse();
-    }
-
-    for (const action of actionsToApply) {
-      switch (mode) {
-        case "undo": {
-          action.undo();
-          break;
-        }
-        case "redo": {
-          action.redo();
-          break;
-        }
-      }
-    }
-
-    applyEditorDecorations();
-
-  };
-
-  const applyEditorDecorations = () => {
-
+  useEffect(() => {
     if (!editorRef.current) {
       return;
     }
+    const editor = editorRef.current;
+    // log(`** applyDecorations **`);
+    const decorations = textExpressionToEditorDecorations(textExpression);
+    const nextDecorationIds = editor.deltaDecorations(lastDecorationIds.current, decorations);
+    lastDecorationIds.current = nextDecorationIds;
+    trackedTextVars.current = trackTextVars(nextDecorationIds, decorations, textExpression.vars);
+  }, [textExpression]);
 
-    const nextDecorations: monacoEditor.editor.IModelDeltaDecoration[] = vars.current.map(varToDecoration);
+  const updateTextExpressionAfterModelChanges = (nextValue: string, nextEditorVersion: number) => {
 
-    const result = editorRef.current.deltaDecorations(Object.keys(varTracking.current), nextDecorations);
-    // const result = editorRef.current.deltaDecorations([], nextDecorations);
-    const tracking: VarTracking = {};
-
-    for (let i = 0; i < result.length; i++) {
-      const id = result[i];
-      tracking[id] = vars.current[i];
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
     }
 
-    varTracking.current = tracking;
+    const nextDecorations = editorRef.current!.getModel()!.getAllDecorations();
+
+    // we need to see which decorations moved and which ones need to be deleted
+
+    const nextTextExpression: TextExpression = {
+      raw: nextValue,
+      vars: [],
+    };
+
+    let hasChanges = false;
+
+    const edits: { op: monacoEditor.editor.IIdentifiedSingleEditOperation, textVar: TextVar }[] = [];
+
+    for (const nextDecoration of nextDecorations) {
+
+      const currentDisplayedDecorationValue = editorRef.current?.getModel()?.getValueInRange(nextDecoration.range);
+      const existingTrackedVar = trackedTextVars.current[nextDecoration.id];
+
+      if (existingTrackedVar) {
+        const { textVar: existingTextVar, range: existingRange } = existingTrackedVar;
+
+        if (currentDisplayedDecorationValue === existingTextVar.display) {
+          // display value unmodified, it either moved or stayed in the same spot
+          if (!nextDecoration.range.equalsRange(existingRange)) {
+            // moved!
+            nextTextExpression.vars.push({
+              ...existingTrackedVar.textVar,
+              lineNumber: nextDecoration.range.startLineNumber - 1,
+              startIndex: nextDecoration.range.startColumn - 1,
+              endIndex: nextDecoration.range.endColumn - 1,
+            });
+            hasChanges = true;
+          } else {
+            // same spot, track as-is
+            nextTextExpression.vars.push(existingTrackedVar.textVar);
+          }
+        } else {
+
+          if (!varsPendingDelete.current.includes(existingTrackedVar.textVar)) {
+
+            hasChanges = true;
+            // changed display value... stop tracking the var, push an edit operation to delete the remaining range
+
+            edits.push({
+              op: {
+                text: null,
+                range: nextDecoration.range,
+              },
+              textVar: existingTrackedVar.textVar,
+            });
+
+            varsPendingDelete.current.push(existingTrackedVar.textVar);
+          }
+
+        }
+
+      }
+    }
+
+    savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
+
+    if (hasChanges) {
+      if (edits.length > 0) {
+        setImmediate(() => {
+          setTextExpression(nextTextExpression);
+          editor.executeEdits(
+            "delete-text-var-ranges",
+            edits.map(it => it.op),
+            // (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
+          );
+          for (const edit of edits) {
+            if (varsPendingDelete.current.includes(edit.textVar)) {
+              varsPendingDelete.current.splice(varsPendingDelete.current.indexOf(edit.textVar), 1);
+            }
+          }
+        });
+      } else {
+        setTextExpression(nextTextExpression);
+      }
+    }
+
   };
+
+  const savePreviousTextVars = (version: number, textVars: TextVar[]) => {
+    previousTextVars.current.set(version, textVars);
+  };
+
+  const applyPreviousTextVars = (version: number) => {
+    for (let target = version; target >= 0; target--) {
+      if (previousTextVars.current.has(target)) {
+        setTextExpression({
+          ...textExpression,
+          vars: previousTextVars.current.get(target)!,
+        });
+        return;
+      }
+    }
+    throw new Error(`failed to find a previous text vars for version=${version}`);
+  };
+
+  const onDidChangeModelContent = (e: monacoEditor.editor.IModelContentChangedEvent) => {
+
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    const nextVersionId = e.versionId;
+    const nextAltVersionId = editor.getModel()!.getAlternativeVersionId();
+    const nextValue = editor.getValue();
+
+    // log(`onDidChangeModelContent editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`);
+    // log(`onDidChangeModelContent value [${nextValue}]`);
+
+    // if not undo/redo, maybe update the TextExpression
+    if (!e.isRedoing && !e.isUndoing) {
+      updateTextExpressionAfterModelChanges(nextValue, nextAltVersionId);
+    } else if (e.isRedoing || e.isUndoing) {
+      applyPreviousTextVars(nextAltVersionId);
+    }
+
+    editorVersion.current = nextVersionId;
+    editorAltVersion.current = nextAltVersionId;
+  };
+
 
   const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
 
@@ -127,329 +194,17 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     monaco.editor.defineTheme("custom", Custom);
     monaco.editor.setTheme("custom");
 
-    setImmediate(applyEditorDecorations);
+    // event listeners
+    editor.onDidChangeModelContent(onDidChangeModelContent);
 
-    editor.onDidChangeModelContent(e => {
-
-      console.log(`onDidChangeModelContent v=${e.versionId} alt=${editor.getModel()?.getAlternativeVersionId()}`);
-
-      if (e.isUndoing) {
-        applyCustomUndoRedoActions("undo");
-      } else if (e.isRedoing) {
-        applyCustomUndoRedoActions("redo");
-      }
-
-    });
-
-    editor.onKeyDown((e) => {
-      const code = e.code;
-      // console.log("onKeyDown code=" + code);
-      lastKeyCode.current = code;
-    });
-
-    editor.onDidChangeCursorPosition((e) => {
-
-      const position = e.position.column - 1; // modify to 0-based index
-      const lineNumber = e.position.lineNumber;
-
-      for (const v of vars.current) {
-
-        if (position > v.start && position < v.end) {
-
-          if (lastKeyCode.current === "ArrowLeft") {
-            // move to left side
-            editor.setPosition({
-              lineNumber,
-              column: v.start + 1, // modify to 1-based index
-            });
-          } else if (lastKeyCode.current === "ArrowRight") {
-            // move to right side
-            editor.setPosition({
-              lineNumber,
-              column: v.end + 1, // modify to 1-based index
-            });
-          } else {
-            // figure out left or right based on how close it is to the center
-
-            const totalWidth = v.end - v.start;
-            const center = Math.floor(totalWidth / 2);
-            const offset = position - v.start;
-            const column = offset >= center ? v.end + 1 : v.start + 1; // modify to 1-based index
-
-            editor.setPosition({
-              lineNumber,
-              column,
-            });
-          }
-
-        }
-
-      }
-
-    });
-
-    editor.onDidChangeCursorSelection((e) => {
-      // console.log(`onDidChangeCursorSelection(reason=${e.reason}, source=${e.source})`)
-      if (hasSelection(e.selection)) {
-        const selectedValue = editorValue.current.substring(Math.min(e.selection.startColumn, e.selection.endColumn) - 1, Math.max(e.selection.startColumn, e.selection.endColumn) - 1);
-        // console.log(`** selection [${selectedValue}]`);
-      } else {
-        // console.log(`-- no selection`);
-      }
-    });
-
-    // editor.onDidChangeCursorSelection((e) => {
-
-    //   if (!hasSelection(e.selection)) {
-    //     return;
-    //   }
-
-
-    //   if (e.selection.startColumn >= 8 && e.selection.endColumn < 17) {
-
-    //     const currentSelection = editor.getSelection()!;
-    //     if (!hasSelection(currentSelection)) {
-    //       return;
-    //     }
-
-    //     if (e.selection.endColumn < 17) {
-    //       console.log(">> extending selection right");
-    //       editor.setSelection({
-    //         startLineNumber: currentSelection.startLineNumber,
-    //         endLineNumber: currentSelection.endLineNumber,
-    //         startColumn: currentSelection.startColumn,
-    //         endColumn: 17,
-    //       });
-    //     } else if (e.selection.startColumn >= 8) {
-    //       console.log("<< extending selection left");
-    //       editor.setSelection({
-    //         startLineNumber: currentSelection.startLineNumber,
-    //         endLineNumber: currentSelection.endLineNumber,
-    //         startColumn: 8,
-    //         endColumn: currentSelection.endColumn,
-    //       });
-    //     }
-
-    //   }
-
-    // });
-
-    // disable find
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_F, function () { });
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_G, function () { });
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_G, function () { });
-
-    // disable goto line
-    editor.addCommand(monaco.KeyMod.WinCtrl | monaco.KeyCode.KEY_G, function () { });
-
-    // disable select line
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_L, function () { });
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_L, function () { });
-
-    // disable delete line
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_K, function () { });
-
-    // disable enter (only during text editor focus)
-    editor.addCommand(monaco.KeyCode.Enter, function (e: any) { }, 'editorTextFocus && !suggestWidgetVisible');
-    editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.Enter, function () { });
-
-    // disable command pallette
-    editor.addCommand(monaco.KeyCode.F1, function () { });
-
-
-
-    editor.onDidChangeModelDecorations(e => {
-
-      // if (varEditsPending.current) {
-      //   return;
-      // }
-
-      try {
-        // varEditsPending.current = true;
-
-        console.log(">> start onDidChangeModelDecorations");
-
-        const currentDecorations = editor.getLineDecorations(1);
-
-        if (currentDecorations) {
-
-          const toDeletes: { v: Var, decoration: monacoEditor.editor.IModelDecoration }[] = [];
-          let hasModifications = false;
-
-          for (const currentDecoration of currentDecorations) {
-            // console.log("varTracking.current", JSON.stringify(varTracking.current));
-            const v = varTracking.current[currentDecoration.id];
-            if (!v) {
-              continue;
-            }
-            const oldSize = v.end - v.start;
-            const newSize = currentDecoration.range.endColumn - currentDecoration.range.startColumn;
-
-            if (oldSize != newSize) {
-              // size changed, user wants to delete the var
-              if (!varsPendingDelete.current.includes(v)) {
-                console.log(`deleting id=${currentDecoration.id}`);
-                varsPendingDelete.current.push(v);
-                toDeletes.push({ v, decoration: currentDecoration });
-              }
-            } else {
-              // check if moved, track changes
-              if (v.lineNumber !== currentDecoration.range.startLineNumber) {
-                console.log(`updated line number id=${currentDecoration.id}`);
-                v.lineNumber = currentDecoration.range.startLineNumber;
-              }
-              if (v.start !== currentDecoration.range.startColumn - 1) {
-                console.log(`updated start col id=${currentDecoration.id}`);
-                v.start = currentDecoration.range.startColumn - 1; // convert to 0-based indexing
-              }
-              if (v.end !== currentDecoration.range.endColumn - 1) {
-                console.log(`updated end col id=${currentDecoration.id}`);
-                v.end = currentDecoration.range.endColumn - 1; // convert to 0-based indexing
-              }
-            }
-          }
-
-          const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
-          const undoRedoActions: CustomUndoRedoAction[] = [];
-          const currentModelVersion = editorRef.current!.getModel()!.getVersionId();
-          const currentModelAltVersion = editorRef.current!.getModel()!.getAlternativeVersionId();
-
-          const alreadyProcessedVars: Var[] = [];
-
-          if (toDeletes.length > 0) {
-
-            hasModifications = true;
-
-            const varsCopy = [...vars.current];
-
-            // delete from right-to-left so that editor text indexes can be processed without affecting one another
-            const sortedToDeletes = _sortBy(toDeletes, it => it.decoration.range.startColumn).reverse();
-
-            for (const toDelete of sortedToDeletes) {
-              const { v, decoration } = toDelete;
-
-              if (alreadyProcessedVars.includes(v)) {
-                continue;
-              } else {
-                alreadyProcessedVars.push(v);
-              }
-
-              // splice out the var
-              const idx = varsCopy.indexOf(v);
-              if (idx !== -1) {
-                varsCopy.splice(idx, 1);
-              }
-
-              // modify the text model to remove the remainder of the var
-              edits.push({
-                text: null,
-                range: new Range(decoration.range.startLineNumber, decoration.range.startColumn, decoration.range.endLineNumber, decoration.range.endColumn),
-              });
-
-              console.log(`adding undo action for version=${currentModelVersion} alt=${currentModelAltVersion}`);
-
-              undoRedoActions.push({
-                undoVersion: currentModelVersion - 1, // IS THIS OK?
-                redoVersion: currentModelVersion + 1, // IS THIS OK?
-                undo: () => {
-                  if (!vars.current.includes(v)) {
-                    console.log("++ adding var...")
-                    vars.current.push(v);
-                  }
-                },
-                redo: () => {
-                  if (vars.current.includes(v)) {
-                    console.log("-- splicing out var...");
-                    vars.current.splice(vars.current.indexOf(v), 1);
-                  }
-                }
-              });
-            }
-
-            vars.current = varsCopy;
-            customUndoRedoActions.current = [...customUndoRedoActions.current, ...undoRedoActions];
-          }
-
-          if (hasModifications) {
-            setImmediate(() => {
-              editor.executeEdits(
-                "delete-vars",
-                edits,
-                (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
-              );
-              editor.pushUndoStop();
-
-              console.log("cleaning up...");
-              for (const toDelete of toDeletes) {
-                if (varsPendingDelete.current.includes(toDelete.v)) {
-                  varsPendingDelete.current.splice(varsPendingDelete.current.indexOf(toDelete.v, 1));
-                }
-              }
-
-              applyEditorDecorations();
-              // varEditsPending.current = false;
-            });
-
-          } else {
-            // varEditsPending.current = false;
-
-          }
-
-        }
-
-        // // track changes to vars via model decoration changes
-        // const currentDecorations = editor!.getLineDecorations(1);
-
-        // console.log("<< end onDidChangeModelDecorations");
-      } finally {
-      }
-
-    });
-
-  };
-
-  const onChange = (value: string, event: monacoEditor.editor.IModelContentChangedEvent) => {
-    // console.log("onChange");
-
-    // const decorations = editor!.getLineDecorations(1);
-    // console.log("decorations", decorations);
-
-    // let sanitized = NEWLINE_REGEX.test(value) ? value.replace(NEWLINE_REGEX, "") : value;
-    // let workingVersion = applyEditsToValue(editorValue.current, value, event.changes);
-    // // strip newline & carriage returns
-    // workingVersion = NEWLINE_REGEX.test(value) ? value.replace(NEWLINE_REGEX, "") : workingVersion;
-
-    // editorValue.current = workingVersion;
-
-    // if (editor!.getValue() !== workingVersion) {
-    //   editor!.setValue(workingVersion);
-    // }
-
-
-  };
-
-  const applyEditsToValue = (prevValue: string, nextValue: string, changes: monacoEditor.editor.IModelContentChange[]): string => {
-
-    let currentValue = nextValue;
-
-    // apply changes left-to-right (vars are ordered)
-    const sortedChanges = _sortBy(_sortBy(_sortBy(changes, it => it.range.endColumn), it => it.range.startColumn), it => it.range.startLineNumber);
-    // console.log("changes", changes);
-    // console.log("sortedChanges", sortedChanges);
-
-    for (const change of sortedChanges) {
-
-    }
-
-    return currentValue;
+    disableOneLineEditorFunctionality(editor, monaco);
   };
 
   return (
     <StyledMonacoEditor
       height="30px"
-      defaultValue={editorValue.current}
+      defaultValue={props.initialValue.raw}
       editorDidMount={onDidMount}
-      onChange={onChange}
       language="plaintext"
       options={{
         roundedSelection: false,
@@ -488,9 +243,6 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
         useTabStops: false,
         selectionHighlight: true,
         occurrencesHighlight: true,
-        // find: {
-
-        // }
       }}
 
     />
@@ -534,15 +286,13 @@ const BG_COLOR = "#222224";
 const StyledMonacoEditor = styled(WrappedMonacoEditor)`
   .myDecoration {
     z-index: 1;
-    /* border-top: solid 1px #e7ed18; */
-    /* border-bottom: solid 1px #e7ed18; */
-    /* background-color: #3a3b1e; */
   }
 
   .myInlineDecoration {
     z-index: 2;
     position: relative;
     color: #e7ed18;
+    border-bottom: solid 1px #e7ed18;
   }
 
   .view-lines span.mtk1 {

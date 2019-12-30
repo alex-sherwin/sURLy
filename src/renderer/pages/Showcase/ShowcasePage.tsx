@@ -4,7 +4,7 @@ import React, { useState } from "react";
 // local
 import { TextExpression } from "../../../shared/models/TextExpression";
 import { styled } from "../../theme";
-import { OneLineTextField4 } from "../../components/TextField/OneLineTextField4";
+import { OneLineTextField } from "../../components/TextField/OneLineTextField";
 
 const DEFAULT_RAW_VALUE = "http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123";
 const DEFAULT_VALUE: TextExpression = {
@@ -21,8 +21,7 @@ export const ShowcasePage = () => {
 
   return (
     <RootDiv>
-      {/* <OneLineTextField4 value={DEFAULT_VALUE} onChange={setValue} /> */}
-      <OneLineTextField4 value={value} />
+      <OneLineTextField initialValue={value} />
     </RootDiv>
   );
 };
