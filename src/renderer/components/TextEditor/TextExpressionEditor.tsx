@@ -1,10 +1,6 @@
 // third party
 import React, { FC, useRef, useEffect, useState } from "react";
 import monacoEditor from "monaco-editor";
-import _sortBy from "lodash/sortBy";
-import _groupBy from "lodash/groupBy";
-import _cloneDeep from "lodash/cloneDeep";
-import _flatten from "lodash/flatten";
 
 // local
 import { TextExpression } from "../../../shared/models/TextExpression";
@@ -13,7 +9,6 @@ import { TextVar } from "../../../shared/models/TextVar";
 // really local
 import { ThemedMonacoEditor } from "./ThemedMonacoEditor";
 import { TextFieldProps } from "./TextFieldProps";
-import { TextFieldReadyEvent } from "./TextFieldReadyEvent";
 import { TrackedTextVars } from "./TrackedTextVars";
 import { disableOneLineEditorFunctionality, textExpressionToEditorDecorations, trackTextVars } from './utils';
 
