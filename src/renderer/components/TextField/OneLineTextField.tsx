@@ -1,7 +1,6 @@
 // third party
 import React, { FC, useRef, useEffect, useState } from "react";
-import MonacoEditor, { MonacoEditorProps } from 'react-monaco-editor';
-import monacoEditor, { Range, Selection, editor } from "monaco-editor";
+import monacoEditor from "monaco-editor";
 import _sortBy from "lodash/sortBy";
 import _groupBy from "lodash/groupBy";
 import _cloneDeep from "lodash/cloneDeep";
@@ -10,13 +9,13 @@ import _flatten from "lodash/flatten";
 // local
 import { TextExpression } from "../../../shared/models/TextExpression";
 import { TextVar } from "../../../shared/models/TextVar";
-import { styled } from '../../theme';
-import { disableOneLineEditorFunctionality, textExpressionToEditorDecorations, trackTextVars } from './utils';
 
 // really local
+import { ThemedMonacoEditor } from "./ThemedMonacoEditor";
 import { TextFieldProps } from "./TextFieldProps";
 import { TextFieldReadyEvent } from "./TextFieldReadyEvent";
 import { TrackedTextVars } from "./TrackedTextVars";
+import { disableOneLineEditorFunctionality, textExpressionToEditorDecorations, trackTextVars } from './utils';
 
 export interface OneLineTextFieldProps extends TextFieldProps {
 
@@ -186,13 +185,11 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   };
 
 
-  const onDidMount = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
+  const onReady = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor) => {
 
     monacoRef.current = monaco;
     editorRef.current = editor;
 
-    monaco.editor.defineTheme("custom", Custom);
-    monaco.editor.setTheme("custom");
 
     // event listeners
     editor.onDidChangeModelContent(onDidChangeModelContent);
@@ -201,10 +198,11 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   };
 
   return (
-    <StyledMonacoEditor
+    <ThemedMonacoEditor
+      theme="dark"
       height="30px"
       defaultValue={props.initialValue.raw}
-      editorDidMount={onDidMount}
+      onReady={onReady}
       language="plaintext"
       options={{
         roundedSelection: false,
@@ -247,80 +245,4 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
 
     />
   );
-};
-
-const hasSelection = (selection: monacoEditor.Selection | null): boolean => {
-  if (selection) {
-    if (selection.startLineNumber !== selection.endLineNumber) {
-      return true; // spans rows
-    }
-    if (selection.startColumn !== selection.endColumn) {
-      return true; // spans columns
-    }
-  }
-  return false;
-};
-
-
-interface WrappedMonagoEditorProps extends MonacoEditorProps {
-  className?: string;
-}
-
-const WrappedMonacoEditor: FC<WrappedMonagoEditorProps> = (props) => {
-  const { className, options, ...rest } = props;
-  return (
-    <MonacoEditor
-      {...rest}
-      options={{
-        ...options,
-        extraEditorClassName: className,
-      }}
-    />
-  );
-};
-
-
-const BG_COLOR = "#222224";
-
-
-const StyledMonacoEditor = styled(WrappedMonacoEditor)`
-  .myDecoration {
-    z-index: 1;
-  }
-
-  .myInlineDecoration {
-    z-index: 2;
-    position: relative;
-    color: #e7ed18;
-    border-bottom: solid 1px #e7ed18;
-  }
-
-  .view-lines span.mtk1 {
-    text-shadow: 0 0 4px #239440, 0 0 6px #227d39, 0 0 8px #2e362e;
-    filter: saturate(90%);
-  }
-`;
-
-export const Custom: monacoEditor.editor.IStandaloneThemeData = {
-  base: "vs-dark",
-  inherit: true,
-  rules: [
-    { token: undefined!, background: BG_COLOR, foreground: "#0aff4b" },
-  ],
-  colors: {
-    "editorGutter.background": BG_COLOR,
-
-    "editor.background": BG_COLOR,
-    "editor.foreground": "#0aff4b",
-
-    "editorCursor.background": BG_COLOR,
-    "editorCursor.foreground": "#0aff4b",
-
-    "editor.selectionBackground": "#216131",
-    "editor.selectionHighlightBackground": "#193620",
-    "editor.selectionForeground": "#000000",
-
-    "background": BG_COLOR,
-    "foreground": "#ff0000",
-  }
 };

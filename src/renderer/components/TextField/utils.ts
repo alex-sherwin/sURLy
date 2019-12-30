@@ -8,6 +8,7 @@ import { TextVar } from '../../../shared/models/TextVar';
 
 // really local
 import { TrackedTextVars } from './TrackedTextVars';
+import { TEXT_VAR_CLASS, TEXT_VAR_INLINE_CLASS } from "./theme/common";
 
 export const disableOneLineEditorFunctionality = (editor: monacoEditor.editor.IStandaloneCodeEditor, monaco: typeof monacoEditor): void => {
 
@@ -59,8 +60,8 @@ export const textExpressionToEditorDecorations = (expr: TextExpression): monacoE
 const textVarToEditorDecoration = (textVar: TextVar): monacoEditor.editor.IModelDeltaDecoration => ({
   range: textVarToEditorIRange(textVar),
   options: {
-    className: "myDecoration",
-    inlineClassName: "myInlineDecoration",
+    className: TEXT_VAR_CLASS,
+    inlineClassName: TEXT_VAR_INLINE_CLASS,
     inlineClassNameAffectsLetterSpacing: false,
     isWholeLine: false,
     stickiness: 1, // 1 = TrackedRangeStickiness.NeverGrowsWhenTypingAtEdges
