@@ -44,7 +44,6 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
   }, [editorRef.current]);
 
   useEffect(() => {
-    log(`$$$$ RUNNING EFFECT $$$$`)
     if (!editorRef.current) {
       return;
     }
@@ -61,10 +60,12 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
 
   const updateTextExpressionAfterModelChanges = (nextValue: string) => {
 
-    const nextDecorations = editorRef.current!.getModel()!.getAllDecorations();
-    console.log("nextDecorations", nextDecorations);
-    console.log("trackedTextVars.current", trackedTextVars.current);
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
 
+    const nextDecorations = editorRef.current!.getModel()!.getAllDecorations();
 
     // we need to see which decorations moved and which ones need to be deleted
 
@@ -74,6 +75,8 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
     };
 
     let hasChanges = false;
+
+    const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
 
     for (const nextDecoration of nextDecorations) {
 
@@ -87,7 +90,6 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
           // display value unmodified, it either moved or stayed in the same spot
           if (!nextDecoration.range.equalsRange(existingRange)) {
             // moved!
-            log(`>> moved decoration + var`);
             nextTextExpression.vars.push({
               ...existingTrackedVar.textVar,
               lineNumber: nextDecoration.range.startLineNumber - 1,
@@ -97,21 +99,39 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
             hasChanges = true;
           } else {
             // same spot, track as-is
-            log(`>> var is in same spot??`);
             nextTextExpression.vars.push(existingTrackedVar.textVar);
           }
+        } else {
+          hasChanges = true;
+          // changed display value... stop tracking the var, push an edit operation to delete the remaining range
+
+          log(`--- MUST DELETE VAR ---`);
+
+          edits.push({
+            text: null,
+            range: nextDecoration.range,
+          });
+
         }
 
-      } else {
-        log(`existing decoration id=${nextDecoration.id} skipped, wasn't trakced by us`);
-        // TODO: FIXME: remove this if it's never practically thrown
-        // throw new Error("this shouldnt happen.. didn't find previous existing tracked var");
       }
     }
 
     if (hasChanges) {
-      log(`>> upodated text expression!`);
-      setTextExpression(nextTextExpression);
+      log(`>> updated text expression!`);
+      if (edits.length > 0) {
+        setImmediate(() => {
+          setTextExpression(nextTextExpression);
+          editor.executeEdits(
+            "delete-var-range",
+            edits,
+            (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
+            // (ops) => []
+          );
+        });
+      } else {
+        setTextExpression(nextTextExpression);
+      }
     }
 
   };
