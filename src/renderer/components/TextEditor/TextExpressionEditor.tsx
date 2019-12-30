@@ -21,7 +21,7 @@ export interface OneLineTextFieldProps extends TextFieldProps {
 
 }
 
-export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
+export const TextExpressionEditor: FC<OneLineTextFieldProps> = (props) => {
 
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<typeof monacoEditor | null>(null);
@@ -153,10 +153,14 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
   const applyPreviousTextVars = (version: number) => {
     for (let target = version; target >= 0; target--) {
       if (previousTextVars.current.has(target)) {
-        setTextExpression({
+        const nextTextExpression: TextExpression = {
           ...textExpression,
           vars: previousTextVars.current.get(target)!,
-        });
+        };
+        setTextExpression(nextTextExpression);
+        if (props.onChange) {
+          props.onChange(nextTextExpression);
+        }
         return;
       }
     }
