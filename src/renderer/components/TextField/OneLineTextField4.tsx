@@ -26,6 +26,8 @@ interface TrackedTextVars {
   [keyof: string]: { textVar: TextVar; range: monacoEditor.IRange } | undefined;
 }
 
+const x = new Map<number, string>();
+
 export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
 
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
@@ -36,29 +38,27 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
   const [textExpression, setTextExpression] = useState<TextExpression>(props.value);
   const lastDecorationIds = useRef<string[]>([]);
   const trackedTextVars = useRef<TrackedTextVars>({});
+  const previousTextVars = useRef<Map<number, TextVar[]>>(new Map());
 
   useEffect(() => {
-    // setImmediate(applyEditorDecorations);
     editorVersion.current = editorRef.current!.getModel()!.getVersionId();
     editorAltVersion.current = editorRef.current!.getModel()!.getAlternativeVersionId();
+    previousTextVars.current.set(editorAltVersion.current, textExpression.vars);
   }, [editorRef.current]);
 
   useEffect(() => {
     if (!editorRef.current) {
       return;
     }
-    applyDecorations(editorRef.current);
-  }, [textExpression]);
-
-  const applyDecorations = (editor: monacoEditor.editor.IStandaloneCodeEditor) => {
+    const editor = editorRef.current;
     log(`** applyDecorations **`);
     const decorations = textExpressionToEditorDecorations(textExpression);
     const nextDecorationIds = editor.deltaDecorations(lastDecorationIds.current, decorations);
     lastDecorationIds.current = nextDecorationIds;
     trackedTextVars.current = trackTextVars(nextDecorationIds, decorations, textExpression.vars);
-  };
+  }, [textExpression]);
 
-  const updateTextExpressionAfterModelChanges = (nextValue: string) => {
+  const updateTextExpressionAfterModelChanges = (nextValue: string, nextEditorVersion: number) => {
 
     const editor = editorRef.current;
     if (!editor) {
@@ -117,23 +117,46 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
       }
     }
 
+    savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
+
+
     if (hasChanges) {
       log(`>> updated text expression!`);
       if (edits.length > 0) {
         setImmediate(() => {
+          // savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
           setTextExpression(nextTextExpression);
           editor.executeEdits(
-            "delete-var-range",
+            "delete-text-var-ranges",
             edits,
             (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
-            // (ops) => []
           );
         });
       } else {
+        // savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
         setTextExpression(nextTextExpression);
       }
     }
 
+  };
+
+  const savePreviousTextVars = (version: number, textVars: TextVar[]) => {
+    console.log(`saving ${textVars.length} for version=${version}`);
+    previousTextVars.current.set(version, textVars);
+  };
+
+  const applyPreviousTextVars = (version: number) => {
+    for (let target = version; target >= 0; target--) {
+      if (previousTextVars.current.has(target)) {
+        console.log(`+++ restored previous vars for requested version=${version}, actual version=${target}`);
+        setTextExpression({
+          ...textExpression,
+          vars: previousTextVars.current.get(target)!,
+        });
+        return;
+      }
+    }
+    throw new Error(`failed to find a previous text vars for version=${version}`);
   };
 
   const onDidChangeModelContent = (e: monacoEditor.editor.IModelContentChangedEvent) => {
@@ -150,17 +173,12 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
     log(`onDidChangeModelContent editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`);
     log(`onDidChangeModelContent value [${nextValue}]`);
 
-    // 1. update text expression
-    updateTextExpressionAfterModelChanges(nextValue);
-
-    // [last]: write decorations
-    // applyDecorations(editor);
-    // const decorations = textExpressionToEditorDecorations(textExpression.current);
-    // log(`writing ${decorations.length} decorations`);
-    // console.log("decorations", decorations);
-    // const nextDecorationIds = editor.deltaDecorations(lastDecorationIds.current, decorations);
-    // lastDecorationIds.current = nextDecorationIds;
-
+    // if not undo/redo, maybe update the TextExpression
+    if (!e.isRedoing && !e.isUndoing) {
+      updateTextExpressionAfterModelChanges(nextValue, nextAltVersionId);
+    } else if (e.isRedoing || e.isUndoing) {
+      applyPreviousTextVars(nextAltVersionId);
+    }
 
     editorVersion.current = nextVersionId;
     editorAltVersion.current = nextAltVersionId;
