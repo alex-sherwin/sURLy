@@ -19,9 +19,13 @@ export const ShowcasePage = () => {
 
   const [value, setValue] = useState<TextExpression>(DEFAULT_VALUE);
 
+  const onChange = (expr: TextExpression) => {
+    console.log("got new text expression", expr);
+  };
+
   return (
     <RootDiv>
-      <OneLineTextField initialValue={value} />
+      <OneLineTextField initialValue={value} onChange={onChange} />
     </RootDiv>
   );
 };

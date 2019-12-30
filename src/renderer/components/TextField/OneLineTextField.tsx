@@ -140,6 +140,10 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
       }
     }
 
+    if (props.onChange) {
+      props.onChange(nextTextExpression);
+    }
+
   };
 
   const savePreviousTextVars = (version: number, textVars: TextVar[]) => {
@@ -169,9 +173,6 @@ export const OneLineTextField: FC<OneLineTextFieldProps> = (props) => {
     const nextVersionId = e.versionId;
     const nextAltVersionId = editor.getModel()!.getAlternativeVersionId();
     const nextValue = editor.getValue();
-
-    // log(`onDidChangeModelContent editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`);
-    // log(`onDidChangeModelContent value [${nextValue}]`);
 
     // if not undo/redo, maybe update the TextExpression
     if (!e.isRedoing && !e.isUndoing) {
