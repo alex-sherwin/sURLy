@@ -25,10 +25,9 @@ interface TrackedVar {
   decorationId: string;
 }
 
-interface UndoRedoAction {
+interface UndoAction {
   altVersion: number;
-  enter: () => void;
-  exit: () => void;
+  action: () => void;
 }
 
 const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => ({
@@ -43,6 +42,9 @@ const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => 
   },
 });
 
+const VAR1: Var = { lineNumber: 1, start: 8, end: 18, display: "{hostname}", selected: false };
+const VAR2: Var = { lineNumber: 1, start: 23, end: 29, display: "{port}", selected: false };
+
 export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
   const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
@@ -52,33 +54,33 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
   const monacoRef = useRef<typeof monacoEditor | null>(null);
   const lastKeyCode = useRef<string | null>(null);
   const trackedVars = useRef<TrackedVar[]>([]);
-  const undoRedoActions = useRef<UndoRedoAction[]>([]);
-  const undoStopPending = useRef<boolean>(false);
-  const vars = useRef<Var[]>([
-    { lineNumber: 1, start: 8, end: 18, display: "{hostname}", selected: false },
-    { lineNumber: 1, start: 23, end: 29, display: "{port}", selected: false },
+  const undoActions = useRef<UndoAction[]>([
+    {
+      altVersion: 1,
+      action: () => {
+        // when entering this version, we need to re-add the var
+        if (!vars.current.includes(VAR1)) {
+          vars.current.push(VAR1);
+        }
+      },
+    },
+    {
+      altVersion: 1,
+      action: () => {
+        // when entering this version, we need to re-add the var
+        if (!vars.current.includes(VAR2)) {
+          vars.current.push(VAR2);
+        }
+      },
+    }
   ]);
+  const vars = useRef<Var[]>([VAR1, VAR2]);
 
   useEffect(() => {
     setImmediate(applyEditorDecorations);
     editorVersion.current = editorRef.current!.getModel()!.getVersionId();
     editorAltVersion.current = editorRef.current!.getModel()!.getAlternativeVersionId();
   }, [editorRef.current]);
-
-  const registerUndoStop = () => {
-    console.log("* registering undo...");
-    undoStopPending.current = true;
-    setTimeout(applyUndoStop, 0);
-  };
-
-  const applyUndoStop = () => {
-    if (!editorRef.current || !undoStopPending.current) {
-      return;
-    }
-    undoStopPending.current = false;
-    console.log("++ pushing real undo...");
-    editorRef.current.pushUndoStop();
-  };
 
   const applyEditorDecorations = () => {
 
@@ -90,7 +92,7 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
     const lastDecorationIds = trackedVars.current.map(it => it.decorationId);
     const result = editorRef.current.deltaDecorations(lastDecorationIds, nextDecorations);
-    console.log(`last decoration ids [${lastDecorationIds}] new [${result}]`);
+    // console.log(`last decoration ids [${lastDecorationIds}] new [${result}]`);
 
     const nextTrackedVars: TrackedVar[] = vars.current
       .map((it, idx) => ({ var: it, decorationId: result[idx] }));
@@ -99,7 +101,7 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
   };
 
   const deleteVarsAndApplyDecorations = (toDeleteVars: TrackedVar[]) => {
-    console.log(`deleteTrackedVars count=${toDeleteVars.length}`);
+    // console.log(`deleteTrackedVars count=${toDeleteVars.length}`);
     for (const toDeleteVar of toDeleteVars) {
       if (vars.current.includes(toDeleteVar.var)) {
         vars.current.splice(vars.current.indexOf(toDeleteVar.var), 1);
@@ -124,7 +126,8 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
     const nextVersionId = e.versionId;
     const nextAltVersionId = editor.getModel()!.getAlternativeVersionId();
 
-    console.log(`\n\nonDidChangeModelContent v=${nextVersionId} alt_v=${nextAltVersionId} flush=${e.isFlush}`);
+    log(`onDidChangeModelContent editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`);
+    log(`onDidChangeModelContent value [${editor.getValue()}]`);
 
     if (!e.isRedoing && !e.isUndoing) {
 
@@ -133,69 +136,68 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
       updateVarPositions(liveDecorations, trackedVars.current);
       const [varsToDelete, rangesToDelete] = findVarsToDelete(liveDecorations, trackedVars.current);
 
-      if (varsToDelete.length > 0) {
+      const sortedVarsToDelete = _sortBy(varsToDelete, it => it.var.start);
+
+      if (sortedVarsToDelete.length > 0) {
         // does not bump editor model version
-        deleteVarsAndApplyDecorations(varsToDelete);
-        for (const varToDelete of varsToDelete) {
-          console.log(`%% registering undo/redo @ alt_v=${editorAltVersion.current}`);
-          undoRedoActions.current.push({
+        deleteVarsAndApplyDecorations(sortedVarsToDelete);
+        for (const varToDelete of sortedVarsToDelete) {
+          // console.log(`%% registering undo/redo @ alt_v=${editorAltVersion.current}`);
+          log(`registering undo/redo action @ altVer=${editorAltVersion.current}`);
+          undoActions.current.push({
             altVersion: editorAltVersion.current,
-            enter: () => {
+            action: () => {
               // when entering this version, we need to re-add the var
               if (!vars.current.includes(varToDelete.var)) {
                 vars.current.push(varToDelete.var);
-              }
-            },
-            exit: () => {
-              // when exiting this version, we need to remove the var
-              if (vars.current.includes(varToDelete.var)) {
-                vars.current.splice(vars.current.indexOf(varToDelete.var), 1);
               }
             },
           })
         }
       }
 
-      if (rangesToDelete.length > 0) {
+      const sortedRangesToDelete = _sortBy(rangesToDelete, it => it.startColumn);
+
+      if (sortedRangesToDelete.length > 0) {
         // issue edit operations to delete remainder of the text representing the deleted vars
 
         const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
 
-        for (const rangeToDelete of rangesToDelete) {
+        for (const rangeToDelete of sortedRangesToDelete) {
           edits.push({ text: null, range: rangeToDelete });
         }
 
         setImmediate(() => {
-          // editor.pushUndoStop();
           editor.executeEdits(
             "delete-vars",
             edits,
             (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
           );
-          // editor.pushUndoStop();
         });
 
-      } else {
-        // editor.pushUndoStop();
-        registerUndoStop();
       }
-    } else if (e.isUndoing || e.isRedoing) {
+
+    } else if (e.isUndoing) {
+
+      log(`$$ undo/redo editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`)
 
       const liveDecorations = editor.getModel()!.getAllDecorations();
       updateVarPositions(liveDecorations, trackedVars.current);
+      const [varsToDelete, rangesToDelete] = findVarsToDelete(liveDecorations, trackedVars.current);
+      const sortedVarsToDelete = _sortBy(varsToDelete, it => it.var.start);
+      deleteVarsAndApplyDecorations(sortedVarsToDelete);
 
-      const actions = undoRedoActions.current.filter(it => it.altVersion === nextAltVersionId);
+      const actions = undoActions.current.filter(it => it.altVersion >= nextAltVersionId && it.altVersion < editorAltVersion.current);
+
       if (actions.length > 0) {
         if (e.isUndoing) {
-          console.log(`applying ${actions.length} undo actions`);
-          actions.forEach(it => it.enter());
-        }
-        if (e.isRedoing) {
-          console.log(`applying ${actions.length} redo actions`);
-          actions.forEach(it => it.exit());
+          // console.log(`applying ${actions.length} undo actions`);
+          log(`applying ${actions.length} undo actions`);
+          actions.forEach(it => it.action());
         }
         applyEditorDecorations();
       }
+
     }
 
     editorVersion.current = nextVersionId;
@@ -207,6 +209,15 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
   };
 
   const onDidChangeCursorSelection = (e: monacoEditor.editor.ICursorSelectionChangedEvent) => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
+
+    if (e.secondarySelections.length > 0) {
+      log(`changing to primary selection`);
+      editor.setSelection(e.selection);
+    }
 
   };
 
@@ -243,6 +254,14 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
     // disable delete line
     editor.addCommand(monaco.KeyMod.Shift | monaco.KeyMod.CtrlCmd | monaco.KeyCode.KEY_K, function () { });
+
+    // disable delete line remainder
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Delete, function () { });
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Backspace, function () { });
+
+    // disable delete word
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Delete, function () { });
+    editor.addCommand(monaco.KeyMod.Alt | monaco.KeyCode.Backspace, function () { });
 
     // disable enter (only during text editor focus)
     editor.addCommand(monaco.KeyCode.Enter, function (e: any) { }, 'editorTextFocus && !suggestWidgetVisible');
@@ -417,6 +436,7 @@ const updateVarPositions = (liveDecorations: monacoEditor.editor.IModelDecoratio
   for (const currentTrackedVar of currentTrackedVars) {
     const decoration: monacoEditor.editor.IModelDecoration | undefined = liveDecorationsById[currentTrackedVar.decorationId][0];
     if (shouldVarBeMoved(decoration, currentTrackedVar)) {
+      log(`>> moved "${currentTrackedVar.var.display}" to { ${decoration.range.startColumn}, ${decoration.range.endColumn} }`);
       currentTrackedVar.var.start = decoration.range.startColumn;
       currentTrackedVar.var.end = decoration.range.endColumn;
     }
