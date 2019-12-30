@@ -26,8 +26,6 @@ interface TrackedTextVars {
   [keyof: string]: { textVar: TextVar; range: monacoEditor.IRange } | undefined;
 }
 
-const x = new Map<number, string>();
-
 export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
 
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
@@ -39,6 +37,7 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
   const lastDecorationIds = useRef<string[]>([]);
   const trackedTextVars = useRef<TrackedTextVars>({});
   const previousTextVars = useRef<Map<number, TextVar[]>>(new Map());
+  const varsPendingDelete = useRef<TextVar[]>([]);
 
   useEffect(() => {
     editorVersion.current = editorRef.current!.getModel()!.getVersionId();
@@ -51,7 +50,7 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
       return;
     }
     const editor = editorRef.current;
-    log(`** applyDecorations **`);
+    // log(`** applyDecorations **`);
     const decorations = textExpressionToEditorDecorations(textExpression);
     const nextDecorationIds = editor.deltaDecorations(lastDecorationIds.current, decorations);
     lastDecorationIds.current = nextDecorationIds;
@@ -76,7 +75,7 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
 
     let hasChanges = false;
 
-    const edits: monacoEditor.editor.IIdentifiedSingleEditOperation[] = [];
+    const edits: { op: monacoEditor.editor.IIdentifiedSingleEditOperation, textVar: TextVar }[] = [];
 
     for (const nextDecoration of nextDecorations) {
 
@@ -102,15 +101,22 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
             nextTextExpression.vars.push(existingTrackedVar.textVar);
           }
         } else {
-          hasChanges = true;
-          // changed display value... stop tracking the var, push an edit operation to delete the remaining range
 
-          log(`--- MUST DELETE VAR ---`);
+          if (!varsPendingDelete.current.includes(existingTrackedVar.textVar)) {
 
-          edits.push({
-            text: null,
-            range: nextDecoration.range,
-          });
+            hasChanges = true;
+            // changed display value... stop tracking the var, push an edit operation to delete the remaining range
+
+            edits.push({
+              op: {
+                text: null,
+                range: nextDecoration.range,
+              },
+              textVar: existingTrackedVar.textVar,
+            });
+
+            varsPendingDelete.current.push(existingTrackedVar.textVar);
+          }
 
         }
 
@@ -119,21 +125,22 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
 
     savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
 
-
     if (hasChanges) {
-      log(`>> updated text expression!`);
       if (edits.length > 0) {
         setImmediate(() => {
-          // savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
           setTextExpression(nextTextExpression);
           editor.executeEdits(
             "delete-text-var-ranges",
-            edits,
+            edits.map(it => it.op),
             (ops) => ops.map(it => new Selection(it.range.startLineNumber, it.range.startColumn, it.range.endLineNumber, it.range.endColumn))
           );
+          for (const edit of edits) {
+            if (varsPendingDelete.current.includes(edit.textVar)) {
+              varsPendingDelete.current.splice(varsPendingDelete.current.indexOf(edit.textVar), 1);
+            }
+          }
         });
       } else {
-        // savePreviousTextVars(nextEditorVersion, nextTextExpression.vars);
         setTextExpression(nextTextExpression);
       }
     }
@@ -141,14 +148,12 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
   };
 
   const savePreviousTextVars = (version: number, textVars: TextVar[]) => {
-    console.log(`saving ${textVars.length} for version=${version}`);
     previousTextVars.current.set(version, textVars);
   };
 
   const applyPreviousTextVars = (version: number) => {
     for (let target = version; target >= 0; target--) {
       if (previousTextVars.current.has(target)) {
-        console.log(`+++ restored previous vars for requested version=${version}, actual version=${target}`);
         setTextExpression({
           ...textExpression,
           vars: previousTextVars.current.get(target)!,
@@ -170,8 +175,8 @@ export const OneLineTextField4: FC<OneLineTextFieldProps> = (props) => {
     const nextAltVersionId = editor.getModel()!.getAlternativeVersionId();
     const nextValue = editor.getValue();
 
-    log(`onDidChangeModelContent editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`);
-    log(`onDidChangeModelContent value [${nextValue}]`);
+    // log(`onDidChangeModelContent editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`);
+    // log(`onDidChangeModelContent value [${nextValue}]`);
 
     // if not undo/redo, maybe update the TextExpression
     if (!e.isRedoing && !e.isUndoing) {
