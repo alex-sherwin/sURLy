@@ -26,11 +26,6 @@ interface TrackedVar {
   decorationId: string;
 }
 
-interface UndoAction {
-  altVersion: number;
-  action: () => void;
-}
-
 const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => ({
   range: { startLineNumber: it.lineNumber, endLineNumber: it.lineNumber, startColumn: it.start, endColumn: it.end },
   options: {
@@ -46,7 +41,11 @@ const varToDecoration = (it: Var): monacoEditor.editor.IModelDeltaDecoration => 
 const VAR1: Var = { lineNumber: 1, start: 8, end: 18, display: "{hostname}", selected: false };
 const VAR2: Var = { lineNumber: 1, start: 23, end: 29, display: "{port}", selected: false };
 
-export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
+interface VarsAtVersion {
+  [keyof: string]: Var[];
+}
+
+export const OneLineTextField3: FC<OneLineTextFieldProps> = (props) => {
 
   const editorValue = useRef<string>("http://{hostname}.com:{port}/http/some-thing/_herewego?value=abc%20123");
   const editorRef = useRef<monacoEditor.editor.IStandaloneCodeEditor | null>(null);
@@ -55,27 +54,10 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
   const monacoRef = useRef<typeof monacoEditor | null>(null);
   const lastKeyCode = useRef<string | null>(null);
   const trackedVars = useRef<TrackedVar[]>([]);
-  const undoActions = useRef<UndoAction[]>([
-    {
-      altVersion: 1,
-      action: () => {
-        // when entering this version, we need to re-add the var
-        if (!vars.current.includes(VAR1)) {
-          vars.current.push(VAR1);
-        }
-      },
-    },
-    {
-      altVersion: 1,
-      action: () => {
-        // when entering this version, we need to re-add the var
-        if (!vars.current.includes(VAR2)) {
-          vars.current.push(VAR2);
-        }
-      },
-    }
-  ]);
   const vars = useRef<Var[]>([VAR1, VAR2]);
+  const varsAtAltVersion = useRef<VarsAtVersion>({
+    "1": _cloneDeep([VAR1, VAR2]),
+  });
 
   useEffect(() => {
     setImmediate(applyEditorDecorations);
@@ -134,7 +116,7 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
       // not undo/redo action, we need to check if we need to delete any vars
       const liveDecorations = editor.getModel()!.getAllDecorations();
-      updateVarPositions(liveDecorations, trackedVars.current);
+      const updatedVars = updateVarPositions(liveDecorations, trackedVars.current);
       const [varsToDelete, rangesToDelete] = findVarsToDelete(liveDecorations, trackedVars.current);
 
       const sortedVarsToDelete = _sortBy(varsToDelete, it => it.var.start);
@@ -142,19 +124,6 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
       if (sortedVarsToDelete.length > 0) {
         // does not bump editor model version
         deleteVarsAndApplyDecorations(sortedVarsToDelete);
-        for (const varToDelete of sortedVarsToDelete) {
-          // console.log(`%% registering undo/redo @ alt_v=${editorAltVersion.current}`);
-          log(`registering undo/redo action @ altVer=${editorAltVersion.current}`);
-          undoActions.current.push({
-            altVersion: editorAltVersion.current,
-            action: () => {
-              // when entering this version, we need to re-add the var
-              if (!vars.current.includes(varToDelete.var)) {
-                vars.current.push(varToDelete.var);
-              }
-            },
-          })
-        }
       }
 
       const sortedRangesToDelete = _sortBy(rangesToDelete, it => it.startColumn);
@@ -178,26 +147,57 @@ export const OneLineTextField2: FC<OneLineTextFieldProps> = (props) => {
 
       }
 
-    } else if (e.isUndoing) {
+      // TODO.. last version?
+      if (updatedVars.length > 0 || varsToDelete.length > 0) {
+        log(`tracking ${vars.current.length} at altVer=${nextAltVersionId}`);
+        varsAtAltVersion.current[nextAltVersionId] = _cloneDeep(vars.current);
+      }
+
+    } else if (e.isUndoing || e.isRedoing) {
 
       log(`$$ undo/redo editorVer=${editorVersion.current} editorAltVer=${editorAltVersion.current} / nextVer=${nextVersionId} nextAltVer=${nextAltVersionId}`)
 
-      const liveDecorations = editor.getModel()!.getAllDecorations();
-      updateVarPositions(liveDecorations, trackedVars.current);
-      const [varsToDelete, rangesToDelete] = findVarsToDelete(liveDecorations, trackedVars.current);
-      const sortedVarsToDelete = _sortBy(varsToDelete, it => it.var.start);
-      deleteVarsAndApplyDecorations(sortedVarsToDelete);
+      // find nearest versions of vars to use
+      const trackedAltVersions = Object.keys(varsAtAltVersion.current).map(it => parseInt(it, 10));
+      // console.log("trackedAltVersions", trackedAltVersions);
 
-      const actions = undoActions.current.filter(it => it.altVersion >= nextAltVersionId && it.altVersion < editorAltVersion.current);
+      if (e.isUndoing) {
+        // find exact or nearest (or below)
+        if (trackedAltVersions.includes(nextAltVersionId)) {
+          // exact exists
+          const nextVars = varsAtAltVersion.current[nextAltVersionId.toString()];
+          log(`found exact match for nextAltVer=${nextAltVersionId}`);
+          vars.current = _cloneDeep(nextVars);
+          applyEditorDecorations();
 
-      if (actions.length > 0) {
-        if (e.isUndoing) {
-          // console.log(`applying ${actions.length} undo actions`);
-          log(`applying ${actions.length} undo actions`);
-          actions.forEach(it => it.action());
+        } else {
+          // find nearest
+          // TODO: FIXME: find nearest (below)
         }
-        applyEditorDecorations();
+
+      } else if (e.isRedoing) {
+        // find nearest (probably *also* below)
+
+        // find nearest
+          // TODO: FIXME: find nearest (below)
       }
+
+      // const liveDecorations = editor.getModel()!.getAllDecorations();
+      // updateVarPositions(liveDecorations, trackedVars.current);
+      // const [varsToDelete, rangesToDelete] = findVarsToDelete(liveDecorations, trackedVars.current);
+      // const sortedVarsToDelete = _sortBy(varsToDelete, it => it.var.start);
+      // deleteVarsAndApplyDecorations(sortedVarsToDelete);
+
+      // const actions = undoActions.current.filter(it => it.altVersion >= nextAltVersionId && it.altVersion < editorAltVersion.current);
+
+      // if (actions.length > 0) {
+      //   if (e.isUndoing) {
+      //     // console.log(`applying ${actions.length} undo actions`);
+      //     log(`applying ${actions.length} undo actions`);
+      //     actions.forEach(it => it.action());
+      //   }
+      //   applyEditorDecorations();
+      // }
 
     }
 
@@ -431,17 +431,20 @@ const shouldVarBeDeleted = (liveDecoration: monacoEditor.editor.IModelDecoration
   return false;
 };
 
-const updateVarPositions = (liveDecorations: monacoEditor.editor.IModelDecoration[], currentTrackedVars: TrackedVar[]): void => {
+const updateVarPositions = (liveDecorations: monacoEditor.editor.IModelDecoration[], currentTrackedVars: TrackedVar[]): TrackedVar[] => {
+  const updated: TrackedVar[] = [];
   const liveDecorationsById = _groupBy(liveDecorations, it => it.id);
 
   for (const currentTrackedVar of currentTrackedVars) {
     const decoration: monacoEditor.editor.IModelDecoration | undefined = liveDecorationsById[currentTrackedVar.decorationId][0];
     if (shouldVarBeMoved(decoration, currentTrackedVar)) {
       log(`>> moved "${currentTrackedVar.var.display}" to { ${decoration.range.startColumn}, ${decoration.range.endColumn} }`);
+      updated.push(currentTrackedVar);
       currentTrackedVar.var.start = decoration.range.startColumn;
       currentTrackedVar.var.end = decoration.range.endColumn;
     }
   }
+  return updated;
 };
 
 const shouldVarBeMoved = (liveDecoration: monacoEditor.editor.IModelDecoration | undefined, trackedVar: TrackedVar): boolean => {
